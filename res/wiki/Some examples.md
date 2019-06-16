@@ -1,16 +1,16 @@
-![]()
+![](https://raw.githubusercontent.com/polius/Meteor/master/res/readme/meteor_header.png)
 
 The aim of this section is to fully understand how to execute some queries by giving some practical examples:
 
 **Basic Queries**
 
-*  [**Example 1**]()
-*  [**Example 2**]()
+*  [**Example 1**](https://github.com/polius/Meteor/wiki/Some-examples#basic-queries---example-1)
+*  [**Example 2**](https://github.com/polius/Meteor/wiki/Some-examples#basic-queries---example-2)
 
 **Auxiliary Queries**
 
-*  [**Example 1**]()
-*  [**Example 2**]()
+*  [**Example 1**](https://github.com/polius/Meteor/wiki/Some-examples#auxiliary-queries---example-1)
+*  [**Example 2**](https://github.com/polius/Meteor/wiki/Some-examples#auxiliary-queries---example-2)
 
 ## Basic Queries - Example 1
 

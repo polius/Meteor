@@ -1,20 +1,20 @@
-![]()
+![](https://raw.githubusercontent.com/polius/Meteor/master/res/readme/meteor_header.png)
 
-[**credentials.json**]() is a JSON file that stores all the configuration and credentials needed by Meteor to work. 
+[**credentials.json**](https://github.com/polius/Meteor/blob/master/app/credentials.json) is a JSON file that stores all the configuration and credentials needed by Meteor to work. 
 
 **This file is divided by:**
 
-[**1.  Environments**]()
+[**1.  Environments**](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json'#1-environments)
 
-[**2.  Auxiliary Connections**]()
+[**2.  Auxiliary Connections**](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json'#2-auxiliary-connections)
 
-[**3.  Slack**]()
+[**3.  Slack**](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json'#3-slack)
 
-[**4.  Amazon S3**]()
+[**4.  Amazon S3**](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json'#4-amazon-s3)
 
-[**5.  Meteor Web**]()
+[**5.  Meteor Web**](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json'#5-meteor-web)
 
-[**6.  Execution Mode**]()
+[**6.  Execution Mode**](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json'#6-execution-mode)
 
 ## 1. Environments
 
@@ -254,7 +254,7 @@ To upload all the execution logs to AWS S3, enable the S3 option.
 
 One of the most interesting features that Meteor has is the WebVisor (aka Meteor Web). This web application is used to analyze all the execution operations performed by Meteor.
 
-![]()
+![](https://raw.githubusercontent.com/polius/Meteor/master/res/readme/meteor_web.png)
 
 This parameter is needed to generate an URL (to see all the execution results) everytime that a Meteor execution finishes.
 
@@ -269,7 +269,7 @@ Here is the configuration:
 
 Here is an example:
 
-![]()
+![](https://raw.githubusercontent.com/polius/Meteor/master/res/readme/logs_output.png)
 
 ```
 "web":
@@ -326,4 +326,4 @@ While using this mode all the prints() used in the **query_execution.py** file a
 
 The following graph shows how Meteor handles the Parallel Execution Mode.
 
-![]()
+![](https://raw.githubusercontent.com/polius/Meteor/master/res/readme/meteor_architecture.png)

@@ -1,4 +1,4 @@
-![]()
+![](https://raw.githubusercontent.com/polius/Meteor/master/res/readme/meteor_header.png)
 
 **Meteor is a complete Python application to automatize the SQL Mass Deployment process making it easy and simple**
 
@@ -19,8 +19,8 @@ This wiki is the main source of documentation for developers working with (or co
 
 ## Quick navigation
 
-- [How to setup 'credentials.json']()
+- [How to setup 'credentials.json'](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json')
 
-- [How to setup 'query_execution.py']()
+- [How to setup 'query_execution.py'](https://github.com/polius/Meteor/wiki/How-to-setup-'query_execution.py')
 
-- [See examples]()
+- [Some examples](https://github.com/polius/Meteor/wiki/Some-examples)

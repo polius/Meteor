@@ -1,12 +1,12 @@
-![]()
+![](https://raw.githubusercontent.com/polius/Meteor/master/res/readme/meteor_header.png)
 
-[**query_execution.py**]() is a Python file that stores all the queries and logic that is going to use Meteor during the execution.
+[**query_execution.py**](https://github.com/polius/Meteor/blob/master/app/query_execution.py) is a Python file that stores all the queries and logic that is going to use Meteor during the execution.
 
 **This file is divided by:**
 
-[**1.  Queries**]()
+[**1.  Queries**](https://github.com/polius/Meteor/wiki/How-to-setup-'query_execution.py'#1-queries)
 
-[**2.  Logic**]()
+[**2.  Logic**](https://github.com/polius/Meteor/wiki/How-to-setup-'query_execution.py'#2-logic)
 
 ## 1. Queries
 
@@ -48,7 +48,7 @@ self._auxiliary_queries = {
 
 These are the parameters needed:
 
-*  **auxiliary_connection**: The auxiliary connection that is going to be used. This parameter is configured in the [**credentials.json**]() file.
+*  **auxiliary_connection**: The auxiliary connection that is going to be used. This parameter is configured in the [**credentials.json**](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json'#2-auxiliary-connections) file.
 * **database**: The database where the query will be executed.
 * **query**: The query that is going to execute.
 
@@ -133,13 +133,13 @@ self._queries = {
 self._meteor.execute(query=self._queries['1'], database=database)
 ```
 
-Note that Basic Queries are only allowed in [main]() method.
+Note that Basic Queries are only allowed in [main](https://github.com/polius/Meteor/wiki/How-to-setup-'query_execution.py'#main) method.
 
 | **Method** | **Allowed** |
 | ------ | ------ |
-| before | :red_circle: |
-| main | :white_check_mark:  |
-| after | :red_circle:  |
+| before | 🔴 |
+| main | ✅ |
+| after | 🔴 |
 
 **Auxiliary Queries**
 
@@ -163,6 +163,6 @@ Auxiliary Queries are allowed in all methods.
 
 | **Method** | **Allowed** |
 | ------ | ------ |
-| before | :white_check_mark: |
-| main | :white_check_mark:  |
-| after | :white_check_mark:  |
+| before | ✅ |
+| main | ✅ |
+| after | ✅ |
