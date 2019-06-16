@@ -1,0 +1,1144 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import sys
+import os
+import time
+import shutil
+import calendar
+import requests
+import re
+import traceback
+import signal
+import multiprocessing
+import simplejson
+import imp
+import uuid
+from multiprocessing.managers import SyncManager
+from datetime import timedelta
+from colors import colored
+from deploy_environments import deploy_environments
+from deploy_queries import deploy_queries
+from query import query
+from mysql import mysql
+from logs import logs
+from S3 import S3
+
+
+class deploy:
+    def __init__(self, logger, args, execution_name):
+        self._logger = logger
+        self._args = args
+
+        # Variables to Store all Log Files
+        self._SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
+        self._EXECUTION_NAME = execution_name
+
+        # Init the Logs Class
+        self._logs = logs(self._logger, self._args, self._EXECUTION_NAME)
+
+        # Get Logs Path
+        self._LOGS_PATH = self._logs.get_logs_path()
+
+        # Generate the basic user logs: 'query_execution.py' & 'credentials.json' files
+        if self._args.env_id is None:
+            self._logs.generate()
+
+        # Import 'query_execution.py' file dynamically
+        self._query_execution = imp.load_source('query_execution', "{}query_execution.py".format(self._LOGS_PATH))
+        self._query_execution = self._query_execution.query_execution()
+
+        # Load the 'credentials.json' file dynamically
+        credentials_location = '{}credentials.json'.format(self._LOGS_PATH)
+        self._credentials = self.__load_credentials(credentials_location)
+
+        # Load the 'query_template.json' file dynamically
+        query_template_location = '{}/query_template.json'.format(self._SCRIPT_PATH)
+        self._query_template = self.__load_query_template(query_template_location)
+
+        # Store the 'Environment Name', 'Environment Data' and the list of SQL Servers that is going to perform the deploy
+        self._ENV_NAME = self._args.environment if self._args.environment else ''
+        self._ENV_DATA = {}
+        self._SERVERS = []
+
+        # Get the Environments
+        self._environments = []
+        for key in self._credentials['environments'].keys():
+            self._environments.append(key)
+        self._environments.sort()
+
+        # Execution Time
+        self._START_TIME = time.time()
+        self._VALIDATION_TIME = None
+        self._EXECUTION_TIME = None
+
+        # Deployment Unique Identifier
+        self._UUID = uuid.uuid4()
+
+        # Init the S3 Class
+        self._s3 = S3(self._logger, self._args, self._credentials)
+
+    def __cls(self):
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+    def __load_credentials(self, json_path):
+        try:
+            with open(json_path) as data_file:
+                data = simplejson.load(data_file)
+                return data
+
+        except Exception:
+            self._logger.critical(colored("The 'credentials.json' file has syntax errors. Please check if it's a valid JSON.", 'red', attrs=['reverse', 'bold']))
+            sys.exit()
+
+    def __load_query_template(self, json_path):
+        try:
+            with open(json_path) as data_file:
+                data = simplejson.load(data_file)
+                return data
+
+        except Exception:
+            self._logger.critical(colored("The 'query_template.json' file has syntax errors. Please check if it's a valid JSON.", 'red', attrs=['reverse', 'bold']))
+            sys.exit()
+
+    def init(self):
+        if self._args.usage:
+            self.__show_usage()
+        else:
+            # Validate Args
+            self.__validate_args()
+
+            # Init Meteor Core
+            self.__init_core()
+
+    def check_remote_execution(self):
+        if self._args.env_id is not None:
+            if self._args.env_check_sql is not None:
+                # Check SQL Connection
+                self.validate_sql_connection()
+            else:
+                try:
+                    # Get the Environment to perform the Execution
+                    environment = self._credentials['environments'][self._args.environment]
+                    # Select the valid environment to validate the SQL connections
+                    for env in environment:
+                        if env['region'] == self._args.env_id:
+                            environment = env
+                            break
+
+                    if self._args.env_compress:
+                        # Compress Execution Logs
+                        compressed_file_name = "{}meteor/logs/{}/execution/{}".format(environment['ssh']['deploy_path'], self._EXECUTION_NAME, environment['region'])
+                        compressed_location = "{}meteor/logs/{}/execution/".format(environment['ssh']['deploy_path'], self._EXECUTION_NAME)
+                        if os.path.isdir(compressed_file_name):
+                            shutil.make_archive(compressed_file_name, 'gztar', compressed_location)
+                    else:
+                        # Start the DryRun/Deploy
+                        self.start_query_deploy(environment)
+
+                except KeyboardInterrupt:
+                    sys.exit(2)
+
+                except Exception as e:
+                    self._logger.critical(traceback.format_exc())
+                    sys.exit(1)
+     
+            # Exit the Execution
+            sys.exit(0)
+
+    def __show_usage(self):
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("‖  USAGE                                                           ‖", "magenta", attrs=['bold']))
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("# python meteor.py --environment \"environment_name\" (--servers \"server1,server2,servern\") [ --validate [ credentials | queries | regions | all ] | --test | --deploy ]", attrs=['bold']))
+        self._logger.info(colored("\nModes:", 'yellow'))
+        self._logger.info(colored("--validate", attrs=['bold']) + ": Starts the Validation Process (Credentials, Queries, Environments).")
+        self._logger.info(colored("--test", attrs=['bold']) + ":     Performs the Test Execution without executing any queries.")
+        self._logger.info(colored("--deploy", attrs=['bold']) + ":   Performs the Deployment executing all queries.")
+        self._logger.info('')
+        self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+        self._logger.info(colored("| SETUP                                                            |", 'magenta'))
+        self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+        self._logger.info("Edit these two files:")
+        self._logger.info("- " + colored("credentials.json", attrs=['bold']) + ":   This file stores all the configuration to be used in the Test Execution / Deployment Process.")
+        self._logger.info("- " + colored("query_execution.py", attrs=['bold']) + ": This file stores all the logic and all the queries to be executed in the Test Execution / Deployment Process.")
+        self._logger.info("")
+    
+    def __init_core(self):
+        # Perform the Validation
+        # signal.signal(signal.SIGINT,signal.SIG_IGN)
+        self.__validate()
+        # signal.signal(signal.SIGINT, signal.default_int_handler)
+
+        # Perform the Deploy / Test Execution
+        if self._args.deploy or self._args.test:
+            try:
+                # Start the Countdown
+                self.__start_countdown(test=self._args.test)
+                # Start the Test Execution
+                self.__start(test=self._args.test)
+                # Post Test Execution Success
+                self.__post_execution(deploy=self._args.deploy, error=False)
+            except (Exception, KeyboardInterrupt) as e:
+                # Post Test Execution Failure
+                self.__post_execution(deploy=self._args.deploy, error=True, error_msg=e)
+
+    def __post_execution(self, deploy, error, error_msg=None):
+        # Supress CTRL+C events
+        signal.signal(signal.SIGINT,signal.SIG_IGN)
+
+        try:
+            e = error_msg
+            log_name = 'deploy' if deploy else 'test'
+            if not error:
+                # Get Logs
+                logs = self.__get_logs()     
+                # Analyze Logs
+                summary = self.__analyze_log(logs, log_name)       
+                # Compile Logs
+                self._logs.compile(logs, summary)
+                # Compress Logs Folder
+                self._logs.compress('[SUCCESS]_' + self._EXECUTION_NAME)
+                # Upload Logs to S3
+                self._s3.upload_logs(self._EXECUTION_NAME, '[SUCCESS]_', self._UUID)
+                # Clean Environments
+                self.clean()
+                # Slack Message
+                self.slack(status=1, summary=summary, compressed_file_name='[SUCCESS]_' + self._EXECUTION_NAME)
+                # Show Execution Time
+                self.show_execution_time()
+                # Show Logs Location
+                self.show_logs_location('[SUCCESS]_' + self._EXECUTION_NAME)
+
+            else:
+                status_name = '[SUCCESS]_' if str(e).startswith('[QUERY_ERROR]') else '[FAILED]_'
+                if e.__class__ == Exception:
+                    if not str(e).startswith('[QUERY_ERROR]'):
+                        print(colored("+==================================================================+", 'red', attrs=['bold']))
+                        print(colored("‖  ERROR FOUND IN 'query_execution.py'                             ‖", 'red', attrs=['bold']))
+                        print(colored("+==================================================================+", 'red', attrs=['bold']))
+                        print(colored("Showing Error Traceback ...", attrs=['bold']))
+                        print(str(e).rstrip())
+
+                # Get Logs
+                logs = self.__get_logs()
+                # Analyze Logs
+                summary = self.__analyze_log(logs, log_name)
+                # Compile Logs
+                self._logs.compile(logs, summary, str(e).rstrip())
+                # Compress Logs Folder
+                self._logs.compress(status_name + self._EXECUTION_NAME)
+                # Upload Logs to S3
+                self._s3.upload_logs(self._EXECUTION_NAME, status_name, self._UUID)
+                # Clean Environments
+                self.clean()
+                # Slack Message
+                if e.__class__ == KeyboardInterrupt:
+                    self.slack(status=2, summary=summary, compressed_file_name = status_name + self._EXECUTION_NAME)
+                elif str(e).startswith('[QUERY_ERROR]'):
+                    self.slack(status=3, summary=summary, compressed_file_name = status_name + self._EXECUTION_NAME)
+                else:
+                    message = str(e).rstrip()
+                    self.slack(status=4, summary=summary, compressed_file_name = status_name + self._EXECUTION_NAME, error_msg=message)
+                # Show Execution Time
+                self.show_execution_time()
+                # Show Logs Location
+                self.show_logs_location(status_name + self._EXECUTION_NAME)
+
+        except Exception as e:
+            self._logger.info(str(e))
+            # Clean Environments
+            self.clean()
+            # Slack Message
+            self.slack(status=4, summary=None, compressed_file_name='[FAILED]_' + self._EXECUTION_NAME, error_msg=str(e))
+            # Exit Program
+            sys.exit()
+
+        # Enable CTRL+C events
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+
+    def __validate(self):
+        ## VALIDATION
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("‖  VALIDATION                                                      ‖", "magenta", attrs=['bold']))
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+
+        try:
+            validate_regions = False 
+            if self._args.validate == 'credentials':
+                self.__validate_credentials()
+
+            elif self._args.validate == 'queries':
+                self.__validate_queries()
+
+            elif self._args.validate == 'regions':
+                validate_regions = True
+                self.__validate_regions()
+
+            else:
+                self.__validate_credentials()
+                self.__validate_queries()
+                validate_regions = True
+                self.__validate_regions()
+
+            # Store Validation Time
+            self._VALIDATION_TIME = time.time()
+
+        except (Exception, KeyboardInterrupt) as e:
+            signal.signal(signal.SIGINT,signal.SIG_IGN)
+            if e.__class__ == KeyboardInterrupt and not validate_regions:
+                print(colored("\n--> Ctrl+C received. Stopping the execution...", 'yellow', attrs=['reverse', 'bold']))
+            self._logs.compress('[FAILED]_' + self._EXECUTION_NAME)
+            self.clean()
+            self.show_execution_time(only_validate=True)
+            sys.exit()
+        else:
+            if self._args.validate:
+                signal.signal(signal.SIGINT,signal.SIG_IGN)
+                self.clean(remote=(self._args.validate == 'regions' or self._args.validate == 'all'))
+                self.show_execution_time(only_validate=True)
+
+    def __validate_args(self):
+        if not self._args.environment:
+            raise Exception("[USER] The --environment flag is required")
+        if self._args.validate and not self._args.environment:
+            raise Exception("[USER] The --validate argument requires the --environment")
+        if self._args.test and not self._args.environment:
+            raise Exception("[USER] The --test argument requires the --environment")
+        if self._args.deploy and not self._args.environment:
+            raise Exception("[USER] The --deploy argument requires the --environment")
+        
+        nargs = 0 
+        nargs += 1 if self._args.validate else 0
+        nargs += 1 if self._args.test else 0
+        nargs += 1 if self._args.deploy else 0
+
+        if nargs > 1 or (not self._args.environment and nargs > 0) or (self._args.environment and nargs == 0):
+            raise Exception("[USER] The --environment argument requires [ --validate | --test | --deploy ]")
+
+        if self._args.validate and self._args.validate not in ['all', 'credentials', 'queries', 'regions']:
+            raise Exception("[USER] The --validate argument requires [ credentials | queries | regions | all ]")
+
+    def __validate_credentials(self):
+        self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+        self._logger.info(colored("| Validating Credentials                                           |", 'magenta'))
+        self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+        try:
+            # Check --environment exists
+            if self._args.environment not in self._environments:
+                raise Exception("The Environment '{}' does not exist.".format(self._args.environment))
+
+            else:
+                # Init Global Variables
+                self._ENV_DATA[self._args.environment] = self._credentials['environments'][self._args.environment]
+                self._ENV_NAME = self._args.environment
+
+                # Get The list of Servers to Perform the Test Execution / Deployment
+                for region in self._ENV_DATA[self._args.environment]:
+                    for sql in region['sql']:
+                        if region['ssh']['enabled'] == 'True':
+                            self._SERVERS.append("{0} ({1}) [SSH {2}]".format(sql['name'], sql['hostname'], region['ssh']['hostname']))
+                        else:
+                            self._SERVERS.append("{0} ({1})".format(sql['name'], sql['hostname']))
+
+            for environment in self._environments:
+                regions = self._credentials['environments'][environment]
+                regions_list = []
+                # Store All SQL IDs
+                servers_list = []
+                for region in regions:
+                    # Region
+                    if region['region'] == '':
+                        raise Exception("[Environment: {}] The Region can not be empty.".format(environment))
+                    elif region['region'] in regions_list:
+                        raise Exception("[Environment: {0}] The Region should be unique. There are two regions named '{1}'.".format(environment, region['region']))
+                    regions_list.append(region['region'])
+
+                    # SSH
+                    if region['ssh']['enabled'] != 'True' and region['ssh']['enabled'] != 'False':
+                        raise Exception("[Environment: {}] The SSH enabled should be True or False.".format(environment))
+                    if region['ssh']['enabled'] == 'True' and region['ssh']['hostname'] == '':
+                        raise Exception("[Environment: {}] The SSH hostname can not be empty.".format(environment))
+                    if region['ssh']['enabled'] == 'True' and region['ssh']['deploy_path'] == '':
+                        raise Exception("[Environment: {}] The SSH deploy path can not be empty.".format(environment))
+                    if region['ssh']['enabled'] == 'True' and region['ssh']['key'] != '' and not os.path.isfile(region['ssh']['key']):
+                        raise Exception("[Environment: {}] The SSH key '{}' does not exist in the path provided.".format(environment, region['ssh']['key']))
+                    if region['ssh']['enabled'] == 'True' and not region['ssh']['deploy_path'].endswith('/'):
+                        raise Exception("[Environment: {}] The SSH deploy path has to end with '/'".format(environment))
+
+                    # SQL
+                    for sql in region['sql']:
+                        if sql['name'] == '':
+                            raise Exception("[Environment: {}] The SQL name should be filled.".format(environment))
+                        if sql['hostname'] == '':
+                            raise Exception("[Environment: {}] The SQL hostname should be filled.".format(environment))
+                        if sql['username'] == '':
+                            raise Exception("[Environment: {}] The SQL username should be filled.".format(environment))
+
+                        # Add sql['name'] to the list
+                        servers_list.append(sql['name'])
+                
+                # Check if there are duplicated sql ids in all environment servers
+                seen = set()
+                seen_add = seen.add
+                seen_twice = set( x for x in servers_list if x in seen or seen_add(x) )
+                if len(seen_twice) > 0:
+                    raise Exception("[Environment: {0}] The server name should be unique. There are two IDs named '{1}'".format(environment, str(list(seen_twice)[0])))
+
+                # Check if the list of --servers exist in the credentials
+                if self._args.servers is not None and self._args.environment == environment:
+                    servers = self._args.servers.replace(' ', '').split(',') 
+                    for s in servers:
+                        if s not in servers_list:
+                            raise Exception("[Environment: {0}] The Server '{1}' specified with --servers flag does not exist in the environment.".format(environment, s))
+
+            self._logger.info(colored("- Credentials Validation Passed!", "green", attrs=['bold', 'reverse']))
+
+        except Exception as e:
+            self._logger.critical(colored(e, 'red', attrs=['reverse', 'bold']))
+            sys.exit()
+
+    def __validate_queries(self):
+        try:
+            self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+            self._logger.info(colored("| Validating Queries                                               |", 'magenta'))
+            self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+
+            validation = query(self._logger, self._args, self._credentials, self._query_template, self._EXECUTION_NAME)
+            queries_validated = True
+
+            # Validating Environment Queries
+            for q in self._query_execution.queries.values():
+                query_parsed = q.replace('\n', '')
+                query_parsed = re.sub(' +',' ', query_parsed).strip()
+                query_type = validation.get_query_type(q)
+                if query_type == False:
+                    self._logger.info(colored('[NOT DETECTED] ', 'red') + query_parsed)
+                    queries_validated &= 0
+                else:
+                    self._logger.info(colored('[{}] '.format(query_type.upper()), 'green') + query_parsed)
+                    queries_validated &= 1
+
+            # Validating Auxiliary Queries
+            for q in self._query_execution.auxiliary_queries.values():
+                query_type = validation.get_query_type(q['query'])
+                if query_type == False:
+                    self._logger.info(colored('[NOT DETECTED] ', 'red') + colored(q['query']))
+                    queries_validated &= 0
+                else:
+                    self._logger.info(colored('[{}] '.format(query_type.upper()), 'green') + colored(q['query']))
+                    queries_validated &= 1
+
+            # Determine if the queries are validated
+            if not queries_validated:
+                raise Exception(colored("- Validation Not Passed. Please review the above queries in the 'query_execution.py' file.", "red"))
+            else:
+                self._logger.info(colored("- Queries Validation Passed!", 'green', attrs=['bold', 'reverse']))
+
+        except Exception as e:
+            self._logger.critical(colored(e, 'red', attrs=['reverse', 'bold']))
+            raise
+
+    def __validate_regions(self):
+        try:
+            self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+            self._logger.info(colored("| Validating Regions                                               |", 'magenta'))
+            self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+
+            # Generate App Version
+            deploy_env = deploy_environments(self._logger, self._args, self._credentials)
+            version = deploy_env.generate_app_version()
+            with open('{}/version.txt'.format(self._SCRIPT_PATH), 'w') as file_content:
+                file_content.write(version)
+
+            # Start the Validation Process
+            for environment in [self._args.environment]:
+                # Start Environment Validation in Sequential
+                if self._credentials['execution_mode']['parallel'] != 'True':
+                    validation_succeeded = True
+                    for region in self._credentials['environments'][environment]:
+                        deploy_env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, environment, region)
+                        validation_succeeded &= deploy_env.validate()
+                    if not validation_succeeded:
+                        raise Exception()
+
+                # Start Environment Validation in Parallel
+                else:
+                    manager = SyncManager()
+                    manager.start(self.__mgr_init)
+                    shared_array = manager.list()
+
+                    processes = []
+                    try:
+                        for region in self._credentials['environments'][environment]:
+                            environment_type = '[LOCAL]' if region['ssh']['enabled'] == 'False' else '[SSH]  '
+
+                            deploy_env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, environment, region)
+                            p = multiprocessing.Process(target=deploy_env.validate, args=(False, shared_array,))
+                            p.start()
+                            processes.append(p)
+
+                        for process in processes:
+                            process.join()
+                        
+                        # Get Overall Environment Validation Status
+                        for data in shared_array:
+                            if data['success'] is False:
+                                raise Exception()
+
+                    except KeyboardInterrupt:
+                        signal.signal(signal.SIGINT,signal.SIG_IGN)
+                        print(colored("\n--> Ctrl+C received. Stopping the execution...", 'yellow', attrs=['reverse', 'bold']))
+                        for process in processes:
+                            process.join()
+                        raise
+
+            self._logger.info(colored("- Regions Validation Passed!", 'green', attrs=['bold', 'reverse']))
+
+        except Exception as e:
+            if len(str(e)) > 0:
+                self._logger.critical(str(e))
+            self._logger.critical(colored("- Regions Not Passed the Environment Validation.", 'red', attrs=['reverse', 'bold']))
+            self.clean()    
+            sys.exit()
+        
+    def validate_sql_connection(self):
+        environment = self._credentials['environments'][self._args.environment]
+        # Select the valid environment to validate the SQL connections
+        for env in environment:
+            if env['region'] == self._args.env_id:
+                environment = env
+                break
+
+        for sql in environment['sql']:
+            if sql['name'] == self._args.env_check_sql:
+                try:
+                    mysql_conn = mysql(self._logger, self._args)
+                    mysql_conn.connect(sql['hostname'], sql['username'], sql['password'])
+                except Exception as e:
+                    print(str(e))
+                break
+    
+    def __start_countdown(self, test):
+        try:
+            # Countdown
+            countdown_seconds = 1
+            countdown_msg = '--> Starting Test Execution in:' if test else '--> Starting Deployment in:'
+            countdown_color = '\033[0;31m'
+            self.__countdown(countdown_seconds, countdown_msg, countdown_color)
+        except KeyboardInterrupt:
+            print("")
+            raise
+
+    def __start(self, environment_data=None, test=False):
+        try:
+            # Show Header
+            self.__cls()
+            header_string = "‖  TEST EXECUTION                                                  ‖" if test else "‖  DEPLOYMENT                                                      ‖"
+            self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+            self._logger.info(colored(header_string, "magenta", attrs=['bold']))
+            self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+
+            # Set Args Variable to Define DryRun/Deploy
+            self._args.env_start_deploy = False if test else True
+
+            # Start Environment Deploy in Sequential
+            if self._credentials['execution_mode']['parallel'] != 'True':
+                try:
+                    for env_data in self._ENV_DATA[self._ENV_NAME]:
+                        env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data)
+                        env.start()
+                except KeyboardInterrupt:
+                    print(colored("\n--> Ctrl+C received. Stopping the execution...", 'yellow', attrs=['reverse', 'bold']))
+                    raise
+
+            # Start Environment Deploy in Parallel
+            else:
+                # Initialize Manager
+                manager = SyncManager()
+                manager.start(self.__mgr_init)
+                shared_array = manager.list()
+
+                processes = []
+                try:
+                    for env_data in self._ENV_DATA[self._ENV_NAME]:
+                        environment_type = '[LOCAL]' if env_data['ssh']['enabled'] == 'False' else '[SSH]'
+
+                        env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data, self._UUID)
+                        p = multiprocessing.Process(target=env.start, args=(shared_array,))
+                        p.start()
+                        processes.append(p)
+
+                    for process in processes:
+                        process.join()
+                    
+                    # Get Overall Environment Deploy Status
+                    for data in shared_array:
+                        if data['success'] is False:
+                            if data['error'].startswith("[QUERY_ERROR]") or self._args.test:
+                                self._logger.critical(colored("- {}Execution Finished with errors.".format('Test ' if self._args.test else ''), 'red', attrs=['bold', 'reverse']))
+                            else:
+                                self._logger.critical(colored("- {}Execution Failed!".format('Test ' if self._args.test else ''), 'red', attrs=['bold', 'reverse']))
+                            # Raise Exception
+                            raise Exception(data['error'])
+
+                    if self._args.deploy:
+                        self._logger.info(colored("- Execution Finished Successfully!", "green", attrs=['bold', 'reverse']))
+                    elif self._args.test:
+                        self._logger.info(colored("- Test Execution Finished Successfully!", "green", attrs=['bold', 'reverse']))
+
+                except KeyboardInterrupt:
+                    # Supress CTRL+C events
+                    signal.signal(signal.SIGINT,signal.SIG_IGN)
+                    print(colored("\n--> Ctrl+C Received. Stopping All Region Processes...", 'yellow', attrs=['reverse', 'bold']))
+
+                    # Send SIGINT to all Region Processes
+                    for env_data in self._ENV_DATA[self._ENV_NAME]:
+                        env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data, self._UUID)
+                        env.sigint()
+
+                    # Check all Remaining Region Processes have finished
+                    for env_data in self._ENV_DATA[self._ENV_NAME]:
+                        print(colored("- Remaining Processes to Finish in '{}'".format(env_data['region']), attrs=['bold']))
+                        env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data, self._UUID)
+                        env.check_processes()
+
+                    # Send SIGKILL to clear remaining Zombie Processes
+                    print(colored("- Cleaning Remaining Region Processes...", attrs=['bold']))
+                    for env_data in self._ENV_DATA[self._ENV_NAME]:
+                        env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data, self._UUID)
+                        env.sigkill()
+
+                    # Enable CTRL+C events
+                    signal.signal(signal.SIGINT, signal.default_int_handler)
+
+                    # Raise KeyboardInterrupt
+                    raise
+        finally:
+            self._EXECUTION_TIME = time.time()
+
+    #handle SIGINT from SyncManager object
+    def mgr_sig_handler(self, signal, frame):
+        pass
+
+    #initilizer for SyncManager
+    def __mgr_init(self):
+        signal.signal(signal.SIGINT, self.mgr_sig_handler)
+
+    def __countdown(self, t, msg, color):
+        while t + 1:
+            mins, secs = divmod(t, 60)
+            timeformat = color + msg + ' {:02d}:{:02d}\033[0m'.format(mins, secs)
+
+            sys.stdout.write("\r" + timeformat)
+            sys.stdout.flush()
+
+            time.sleep(1)
+            t -= 1
+        sys.stdout.write("\n")
+
+    def start_query_deploy(self, env):
+        environment_type = '[LOCAL]' if env['ssh']['enabled'] == 'False' else '[SSH]'
+
+        # Create Execution Folders
+        if not os.path.exists(self._LOGS_PATH + 'execution/' + env['region']):
+            os.makedirs(self._LOGS_PATH + 'execution/' + env['region'])
+
+        # Start the Deploy
+        deploy = deploy_queries(self._logger, self._args, self._credentials, self._query_template, self._LOGS_PATH, self._EXECUTION_NAME, self._ENV_NAME, env)
+
+        # Execute 'BEFORE' Queries Once per Region
+        deploy.execute_before(env['region'])
+
+        # Check if --servers flag is not empty
+        servers = self._args.servers.replace(' ', '').split(',') if self._args.servers is not None else None
+
+        # Start Server Deploy in Parallel
+        if self._credentials['execution_mode']['parallel'] == 'True':
+            manager = SyncManager()
+            manager.start(self.__mgr_init)
+            shared_array = manager.list()
+
+            processes = []
+            try:
+                for server in env['sql']:
+                    if self._args.servers is None or (self._args.servers is not None and server['name'] in servers):
+                        p = multiprocessing.Process(target=deploy.execute_main, args=(env['region'], server, shared_array,))
+                        p.start()
+                        processes.append(p)
+
+                for process in processes:
+                    process.join()
+
+                if len(shared_array) > 0:
+                    sys.stderr.write(shared_array[0])
+                    sys.stderr.flush() 
+
+            except KeyboardInterrupt:
+                for process in processes:
+                    process.join()
+                raise
+
+        # Start Server Deploy in Sequential
+        else:
+            for server in env['sql']:
+                if self._args.servers is None or (self._args.servers is not None and server['name'] in servers):
+                    # Show UI
+                    print(colored("+" + "-" * (len(environment_type) + len(self._ENV_NAME) + len(env['region']) + len(server['name']) + len(server['hostname']) + 38) + "+", attrs=['bold']))
+                    print(colored("| {0} ENVIRONMENT: {1} - {2} || SQL SERVER: [{3}] {4} |".format(environment_type, self._ENV_NAME, env['region'], server['name'], server['hostname']), attrs=['bold']))
+                    print(colored("+" + "-" * (len(environment_type) + len(self._ENV_NAME) + len(env['region']) + len(server['name']) + len(server['hostname']) + 38) + "+", attrs=['bold']))
+                    
+                    # Start the Query Deploy
+                    deploy.execute_main(env['region'], server)
+
+        # Execute 'AFTER' Queries Once per Region
+        deploy.execute_after(env['region'])        
+
+    def __analyze_log(self, data, log_name):
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("‖  SUMMARY                                                         ‖", "magenta", attrs=['bold']))
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        
+        # Init summary
+        summary = {}
+        summary['total_queries'] = len(data)
+
+        # Total Queries
+        self._logger.info(colored("- Total Queries: ", attrs=['bold']) + colored(summary['total_queries'], 'yellow'))
+
+        # Analyze Test Execution Logs 
+        if self._args.test:
+            summary['queries_failed'] = 0
+
+            for d in data:
+                # Count Executions Test Failed
+                summary['queries_failed'] += 1 if int(d['meteor_status']) == 0 else 0
+
+            # Queries Passed the Test Run
+            execution_checks_success_value = 0 if summary['total_queries'] == 0 else round(float(summary['total_queries'] - summary['queries_failed']) / float(summary['total_queries']) * 100, 2)        
+            self._logger.info(colored("- Queries Succeeded: ", attrs=['bold']) + colored(summary['total_queries'] - summary['queries_failed'], 'green') + colored(" (~{}%)".format(float(execution_checks_success_value))))
+
+            # Queries Failed the Test Run
+            execution_checks_failed_color = 'green' if summary['queries_failed'] == 0 else 'red'
+            execution_checks_failed_value = 0 if summary['total_queries'] == 0 else round(float(summary['queries_failed']) / float(summary['total_queries']) * 100, 2)        
+            self._logger.info(colored("- Queries Failed: ", attrs=['bold']) + colored(summary['queries_failed'], execution_checks_failed_color) + colored(" (~{}%)".format(float(execution_checks_failed_value))))
+
+        # Analyze Deployment Logs 
+        elif self._args.deploy:
+            summary['meteor_query_error'] = 0
+
+            for d in data:
+                # Count Query Errors
+                summary['meteor_query_error'] += 1 if int(d['meteor_status']) == 0 else 0
+
+            # Queries Succeeded
+            queries_succeeded_value = 0 if summary['total_queries'] == 0 else round(float(int(summary['total_queries']) - int(summary['meteor_query_error'])) / float(summary['total_queries']) * 100, 2)
+            self._logger.info(colored("- Queries Succeeded: ", attrs=['bold']) + colored(int(summary['total_queries']) - int(summary['meteor_query_error']), 'green') + colored(" (~{}%)".format(float(queries_succeeded_value))))
+
+            # Queries Failed
+            queries_failed_value = 0 if summary['total_queries'] == 0 else round(float(summary['meteor_query_error']) / float(summary['total_queries']) * 100, 2)
+            queries_failed_color = 'green' if summary['meteor_query_error'] == 0 else 'red'
+            self._logger.info(colored("- Queries Failed: ", attrs=['bold']) + colored(summary['meteor_query_error'], queries_failed_color) + colored(" (~{}%)".format(float(queries_failed_value))))
+
+        return summary
+
+    def __get_logs(self):
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("‖  LOGS                                                            ‖", "magenta", attrs=['bold']))
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+
+        # 1. Compress Execution Logs
+        self._logger.info('- Compressing Logs From Remote Hosts...')
+
+        ## Parallel Mode
+        if self._credentials['execution_mode']['parallel'] == 'True':
+            manager = SyncManager()
+            manager.start(self.__mgr_init)
+            shared_array = manager.list()
+
+            processes = []
+            try:
+                for env_data in self._ENV_DATA[self._ENV_NAME]:
+                    if env_data['ssh']['enabled'] == 'True':
+                        env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data)
+                        p = multiprocessing.Process(target=env.compress_logs, args=(shared_array,))
+                        p.start()
+                        processes.append(p)
+
+                for process in processes:
+                    process.join()
+
+                for data in shared_array:
+                    raise Exception(colored("--> Error Compressing Logs:\n{}".format(''.join(data)), 'red'))
+
+            except KeyboardInterrupt:
+                for process in processes:
+                    process.join()
+                raise
+
+        ## Sequential Mode
+        else:
+            for env_data in self._ENV_DATA[self._ENV_NAME]:
+                if env_data['ssh']['enabled'] == 'True':
+                    env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data)
+                    env.compress_logs()
+
+        # 2. Get SSH Execution Logs
+        self._logger.info("- Downloading Logs From Remote Hosts...")
+
+        ## Parallel Mode
+        if self._credentials['execution_mode']['parallel'] == 'True':
+            manager = SyncManager()
+            manager.start(self.__mgr_init)
+            shared_array = manager.list()
+
+            processes = []
+            for env_data in self._ENV_DATA[self._ENV_NAME]:
+                env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data)
+                p = multiprocessing.Process(target=env.get_logs, args=(shared_array,))
+                p.start()
+                processes.append(p)
+
+            for process in processes:
+                process.join()
+
+            for data in shared_array:
+                raise Exception(colored("--> Error Downloading Logs:\n{}".format(''.join(data)), 'red'))
+
+        ## Sequential Mode
+        else:
+            for env_data in self._ENV_DATA[self._ENV_NAME]:
+                env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data)
+                env.get_logs()
+
+        # 3. Merging Logs
+        try:
+            execution_logs_path = self._LOGS_PATH + "execution/"
+            region_items = os.listdir(execution_logs_path)
+
+            for region_item in region_items:
+                if os.path.isdir(execution_logs_path + region_item):
+                    print("- Merging '{}'...".format(region_item))
+                    server_items = os.listdir(execution_logs_path + region_item)
+
+                    # Merging Server Logs
+                    for server_item in server_items:
+                        if os.path.isdir(execution_logs_path + region_item + '/' + server_item):
+                            # print("-- Merging '{}'...".format(server_item))
+                            server_files = os.listdir(execution_logs_path + region_item + '/' + server_item)
+                            server_logs = []
+                            for server_file in server_files:
+                                # Merging Database Logs
+                                with open(execution_logs_path + region_item + '/' + server_item + '/' + server_file) as database_log:
+                                    json_decoded = simplejson.load(database_log, strict=False)
+                                    server_logs.extend(json_decoded['output'])
+
+                            # Write Server File
+                            with open(execution_logs_path + region_item + '/' + server_item + '.json', 'w') as f:
+                                simplejson.dump({"output": server_logs}, f)
+
+                    # Merging Region Logs
+                    region_logs = []
+                    server_items = os.listdir(execution_logs_path + region_item)
+                    for server_item in server_items:
+                        if os.path.isfile(execution_logs_path + region_item + '/' + server_item):
+                            with open(execution_logs_path + region_item + '/' + server_item) as server_log:
+                                json_decoded = simplejson.load(server_log, strict=False)
+                                region_logs.extend(json_decoded['output'])
+
+                    # Write Region Logs
+                    with open(execution_logs_path + region_item + '.json', 'w') as f:
+                        simplejson.dump({"output": region_logs}, f)
+
+            # Merging Environment Logs
+            environment_logs = []
+            print("- Generating a Single Log File...")
+            region_items = os.listdir(execution_logs_path)
+            for region_item in region_items:
+                if os.path.isfile(execution_logs_path + region_item):
+                    with open(execution_logs_path + region_item) as f:
+                        json_decoded = simplejson.load(f, strict=False)
+                        environment_logs.extend(json_decoded['output'])
+
+            # Write Environment Log
+            with open(self._LOGS_PATH + 'meteor.js', 'w') as f:
+                simplejson.dump({"output": environment_logs}, f)
+
+            # Compress Execution Logs and Delete Uncompressed Folder
+            shutil.make_archive(self._LOGS_PATH + 'execution', 'gztar', self._LOGS_PATH + 'execution')
+            shutil.rmtree(self._LOGS_PATH + 'execution')
+
+            # Return All Logs
+            return environment_logs
+
+        except Exception:
+            execution_log_merge['success'] = False
+            execution_log_merge['error'] = traceback.format_exc()
+            raise Exception(colored("--> Error Merging Logs:\n{}".format(execution_log_merge['error']), 'red'))
+
+    def clean(self, remote=True):
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("‖  CLEAN UP                                                        ‖", "magenta", attrs=['bold']))
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+
+        # Clean Remote Environments
+        if remote:
+            try:
+                self._logger.info("- Cleaning Remote Environments...")
+
+                if self._ENV_DATA != {}:
+                    if self._credentials['execution_mode']['parallel'] == "True":
+                        self.__clean_parallel()
+                    else:
+                        self.__clean_sequential()
+                else:
+                    for region in self._credentials['environments']:
+                        if self._credentials['execution_mode']['parallel'] == "True":
+                            self.__clean_parallel(region)
+                        else:
+                            self.__clean_sequential(region)
+
+            except Exception as e:
+                self._logger.error(colored("--> Encountered an error cleaning Remote Environments.\n{}".format(e), 'red'))
+
+        # Clean Local Environment
+        try:
+            self._logger.info("- Cleaning Local Environment...")
+            env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME)
+            env.clean_local()
+
+        except Exception as e:
+            self._logger.error(colored("--> Encountered an error cleaning Local Environment.\n{}".format(traceback.format_exc()), 'red'))
+
+        # Send SIGKILL to clear remaining Zombie Processes
+        if self._credentials['execution_mode']['parallel'] == 'True' and not self._args.validate:
+            self._logger.info("- Cleaning Remaining Processes...")
+            for env_data in self._ENV_DATA[self._ENV_NAME]:
+                env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data, self._UUID)
+                env.sigkill()
+
+    def __clean_sequential(self, region=None):
+        env = self._credentials['environments'][region] if region is not None else self._ENV_DATA[self._ENV_NAME]
+
+        for env_data in env:
+            if (env_data['ssh']['enabled'] == 'True'):
+                env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data)
+                env.clean_remote()
+    
+    def __clean_parallel(self, region=None):
+        try:
+            manager = SyncManager()
+            manager.start(self.__mgr_init)
+            shared_array = manager.list()
+
+            processes = []
+            env = self._credentials['environments'][region] if region is not None else self._ENV_DATA[self._ENV_NAME]
+            for env_data in env:
+                if (env_data['ssh']['enabled'] == 'True'):
+                    env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data)
+                    p = multiprocessing.Process(target=env.clean_remote, args=(shared_array,))
+                    p.start()
+                    processes.append(p)
+
+            for process in processes:
+                process.join()
+
+            for data in shared_array:
+                raise Exception(data)                
+
+        except KeyboardInterrupt:
+            for process in processes:
+                process.join()
+            raise
+
+    def slack(self, status, summary, compressed_file_name, error_msg=None):
+        # Send Slack Message if it's enabled
+        if self._credentials['slack']['enabled'] != "True":
+            return
+
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("‖  SLACK                                                           ‖", "magenta", attrs=['bold']))
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info("- Sending Slack Message to #meteor ...")
+
+        # Get Webhook Data
+        webhook_url = self._credentials['slack']['webhook']
+
+        # Execution
+        execution_text = 'Deployment' if self._args.deploy else 'Test'
+
+        # Status
+        status_color = 'danger' if status == 4 else 'good' if status in [1,3] else 'warning'
+        if self._args.deploy:
+            status_text = 'Execution Finished Successfully' if status == 1 else 'Execution Interrupted' if status == 2 else 'Execution Finished with errors' if status == 3 else 'Execution Failed'
+        else:
+            status_text = 'Test Execution Finished Successfully' if status == 1 else 'Test Execution Interrupted' if status == 2 else 'Test Execution Finished with errors' if status == 3 else 'Test Execution Failed'
+
+        # Logs Path
+        logs_path = "{}/logs/{}.tar.gz".format(self._SCRIPT_PATH, compressed_file_name)
+        
+        # Logs Url
+        logs_url = ''
+        if self._credentials['web']['public_url'] != '':
+            public_url = self._credentials['web']['public_url'] + '/' if not self._credentials['web']['public_url'].endswith('/') else self._credentials['web']['public_url']
+            logs_url = "{}?uri={}".format(public_url, self._UUID)
+        
+        # Current Time
+        current_time = calendar.timegm(time.gmtime())
+
+        # Servers
+        servers = "```"
+        for i, s in enumerate(self._SERVERS):
+            if i < 5:
+                servers += "{}\n".format(s)
+        servers = servers[:-1] + '```' if len(self._SERVERS) <= 5 else servers + '...```'
+
+        # Queries
+        queries = "```"
+        for query in self._query_execution.queries.values():
+            queries += re.sub(' +', ' ', query.replace("\t", " ")).strip().replace("\n ", "\n") + '\n'
+        queries = queries[:1990] + '...```' if len(queries) > 1990 else queries + '```'
+
+        # Overall Time
+        overall_time = str(timedelta(seconds=time.time() - self._START_TIME))
+
+        if summary is not None:
+            # Total Queries
+            summary_msg = "- Total Queries: {}".format(summary['total_queries'])
+            
+            if self._args.test:
+                summary_msg += "\n+----------------+\n| TEST EXECUTION |\n+----------------+"
+                execution_checks_success_value = 0 if summary['total_queries'] == 0 else round(float(summary['total_queries'] - summary['queries_failed']) / float(summary['total_queries']) * 100, 2)
+                summary_msg += "\n- Queries Passed the Test Execution: {0} (~{1}%)".format(summary['total_queries'] - summary['queries_failed'], float(execution_checks_success_value))
+                execution_checks_failed_value = 0 if summary['total_queries'] == 0 else round(float(summary['queries_failed']) / float(summary['total_queries']) * 100, 2)
+                summary_msg += "\n- Queries Failed the Test Execution: {0} (~{1}%)".format(summary['queries_failed'], float(execution_checks_failed_value))
+            elif self._args.deploy:
+                summary_msg += "\n+------------+\n| DEPLOYMENT |\n+------------+"
+                queries_succeeded_value = 0 if summary['total_queries'] == 0 else round(float(int(summary['total_queries']) - int(summary['meteor_query_error'])) / float(summary['total_queries']) * 100, 2)
+                summary_msg += "\n- Queries Executed Succeeded: {0} (~{1}%)".format(int(summary['total_queries']) - int(summary['meteor_query_error']), float(queries_succeeded_value))
+                queries_failed_value = 0 if summary['total_queries'] == 0 else round(float(summary['meteor_query_error']) / float(summary['total_queries']) * 100, 2)
+                summary_msg += "\n- Queries Executed Failed: {0} (~{1}%)".format(summary['meteor_query_error'], float(queries_failed_value))
+        else:
+            summary_msg = ''
+
+        # Build Webhook Data
+        webhook_data = {
+            "attachments": [
+                {
+                    "text": "",
+                    "fields": [
+                        {
+                            "title": "Execution",
+                            "value": "```{}```".format(execution_text),
+                            "short": False
+                        },
+                        {
+                            "title": "Status",
+                            "value": "```{}```".format(status_text),
+                            "short": False
+                        },
+                        {
+                            "title": "Environment",
+                            "value": "```{}```".format(self._ENV_NAME),
+                            "short": False
+                        },
+                        {
+                            "title": "Servers",
+                            "value": servers,
+                            "short": False
+                        },
+                        {
+                            "title": "Queries",
+                            "value": queries,
+                            "short": False
+                        },
+                        {
+                            "title": "Summary",
+                            "value": "```{}```".format(summary_msg),
+                            "short": False
+                        },
+                        {
+                            "title": "Logs Path",
+                            "value": "```{}```".format(logs_path),
+                            "short": False
+                        },
+                        {
+                            "title": "Overall Time",
+                            "value": overall_time,
+                            "short": True
+                        }
+                    ],
+                    "color": status_color,
+                    "ts": current_time
+                }
+            ]
+        }
+
+        # Add Logs URL to the webhook_data
+        if logs_url != '':
+            logs_url_schema = { 
+                "title": "Logs Url",
+                "value": "```{}```".format(logs_url),
+                "short": False
+            }
+            webhook_data['attachments'][0]['fields'].insert(len(webhook_data['attachments'][0]['fields'])-1, logs_url_schema)
+
+        # Show Error Message
+        if error_msg is not None:
+            error_data = {
+                "title": "Error",
+                "value": "```{}```".format(error_msg),
+                "short": False
+            }
+            webhook_data["attachments"][0]["fields"].insert(1, error_data)
+
+        # Show the Webhook Response
+        response = requests.post(webhook_url, data=simplejson.dumps(webhook_data), headers={'Content-Type': 'application/json'})
+        if response.status_code == 200:
+            response = "- Slack Webhook Response: {0} [{1}]".format(str(response.text).upper(), str(response.status_code))
+        else:
+            response = "- Slack Webhook Response: {0} [{1}]".format(str(response.text).upper(), str(response.status_code))
+        
+        self._logger.info(response)
+
+    def show_execution_time(self, only_validate=False):
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("‖  EXECUTION TIME                                                  ‖", "magenta", attrs=['bold']))
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+
+        if not only_validate:
+            if self._EXECUTION_TIME is not None:
+                # Validation
+                validation_time = str(timedelta(seconds=self._VALIDATION_TIME - self._START_TIME))
+                self._logger.info(colored("- Validation Time: {}".format(validation_time)))
+
+                # Deployment / Test Execution
+                deploy_time = str(timedelta(seconds=self._EXECUTION_TIME - self._VALIDATION_TIME))
+                if self._args.deploy:
+                    self._logger.info(colored("- Deployment Time: {}".format(deploy_time)))
+                elif self._args.test:
+                    self._logger.info(colored("- Test Execution Time: {}".format(deploy_time)))
+
+                # Post Deployment / Test Execution
+                post_time = str(timedelta(seconds=time.time() - self._EXECUTION_TIME))
+                if self._args.deploy:
+                    self._logger.info(colored("- Post Deployment Time: {}".format(post_time)))
+                elif self._args.test:
+                    self._logger.info(colored("- Post Test Execution Time: {}".format(post_time)))
+
+        # Overall
+        overall_time = str(timedelta(seconds=time.time() - self._START_TIME))
+        self._logger.info(colored("- Overall Time: {}".format(overall_time), attrs=['bold']))
+
+    def show_logs_location(self, compressed_file_name):
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        self._logger.info(colored("‖  OUTPUT                                                          ‖", "magenta", attrs=['bold']))
+        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        # Show Logs Path
+        logs_path = "{}/logs/{}.tar.gz".format(self._SCRIPT_PATH, compressed_file_name)
+        self._logger.info("- Logs Path: " + colored(logs_path, 'green'))
+
+        if self._credentials['web']['public_url'] != '':
+            # Show Logs Url
+            public_url = self._credentials['web']['public_url'] + '/' if not self._credentials['web']['public_url'].endswith('/') else self._credentials['web']['public_url']
+            logs_url = "{}?uri={}".format(public_url, self._UUID)
+            self._logger.info("- Logs Url: " + colored(logs_url, 'yellow'))
