@@ -338,10 +338,11 @@ class deploy_environments:
                     shared_array.append({"region": self._ENV_DATA['region'], "success": True, "sql": sql['name']})
                 return True
             else:
+                result = result[0] if type(result) is list else result
                 if output:
-                    self._logger.error(colored("✘", 'red') + colored(" [{}] ".format(sql['name']), attrs=['bold']) + str(result[0].replace('\n','')))
+                    self._logger.error(colored("✘", 'red') + colored(" [{}] ".format(sql['name']), attrs=['bold']) + str(result.replace('\n','')))
                 if shared_array is not None:
-                    shared_array.append({"region": self._ENV_DATA['region'], "success": False, "sql": sql['name'], "error": result[0].replace('\n','')})
+                    shared_array.append({"region": self._ENV_DATA['region'], "success": False, "sql": sql['name'], "error": result.replace('\n','')})
                 return False
 
         except KeyboardInterrupt:
