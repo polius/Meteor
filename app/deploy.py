@@ -10,7 +10,7 @@ import re
 import traceback
 import signal
 import multiprocessing
-import simplejson
+import json
 import imp
 import uuid
 from multiprocessing.managers import SyncManager
@@ -83,7 +83,7 @@ class deploy:
     def __load_credentials(self, json_path):
         try:
             with open(json_path) as data_file:
-                data = simplejson.load(data_file)
+                data = json.load(data_file)
                 return data
 
         except Exception:
@@ -93,7 +93,7 @@ class deploy:
     def __load_query_template(self, json_path):
         try:
             with open(json_path) as data_file:
-                data = simplejson.load(data_file)
+                data = json.load(data_file)
                 return data
 
         except Exception:
@@ -829,12 +829,12 @@ class deploy:
                             for server_file in server_files:
                                 # Merging Database Logs
                                 with open(execution_logs_path + region_item + '/' + server_item + '/' + server_file) as database_log:
-                                    json_decoded = simplejson.load(database_log, strict=False)
+                                    json_decoded = json.load(database_log, strict=False)
                                     server_logs.extend(json_decoded['output'])
 
                             # Write Server File
                             with open(execution_logs_path + region_item + '/' + server_item + '.json', 'w') as f:
-                                simplejson.dump({"output": server_logs}, f)
+                                json.dump({"output": server_logs}, f)
 
                     # Merging Region Logs
                     region_logs = []
@@ -842,12 +842,12 @@ class deploy:
                     for server_item in server_items:
                         if os.path.isfile(execution_logs_path + region_item + '/' + server_item):
                             with open(execution_logs_path + region_item + '/' + server_item) as server_log:
-                                json_decoded = simplejson.load(server_log, strict=False)
+                                json_decoded = json.load(server_log, strict=False)
                                 region_logs.extend(json_decoded['output'])
 
                     # Write Region Logs
                     with open(execution_logs_path + region_item + '.json', 'w') as f:
-                        simplejson.dump({"output": region_logs}, f)
+                        json.dump({"output": region_logs}, f)
 
             # Merging Environment Logs
             environment_logs = []
@@ -856,12 +856,12 @@ class deploy:
             for region_item in region_items:
                 if os.path.isfile(execution_logs_path + region_item):
                     with open(execution_logs_path + region_item) as f:
-                        json_decoded = simplejson.load(f, strict=False)
+                        json_decoded = json.load(f, strict=False)
                         environment_logs.extend(json_decoded['output'])
 
             # Write Environment Log
             with open(self._LOGS_PATH + 'meteor.js', 'w') as f:
-                simplejson.dump({"output": environment_logs}, f)
+                json.dump({"output": environment_logs}, f)
 
             # Compress Execution Logs and Delete Uncompressed Folder
             shutil.make_archive(self._LOGS_PATH + 'execution', 'gztar', self._LOGS_PATH + 'execution')
@@ -1092,7 +1092,7 @@ class deploy:
             webhook_data["attachments"][0]["fields"].insert(1, error_data)
 
         # Show the Webhook Response
-        response = requests.post(webhook_url, data=simplejson.dumps(webhook_data), headers={'Content-Type': 'application/json'})
+        response = requests.post(webhook_url, data=json.dumps(webhook_data), headers={'Content-Type': 'application/json'})
         if response.status_code == 200:
             response = "- Slack Webhook Response: {0} [{1}]".format(str(response.text).upper(), str(response.status_code))
         else:
