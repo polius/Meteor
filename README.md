@@ -23,13 +23,13 @@ Tested in a real Production Environment using:
 ### 1.1. Clone the Meteor Repository
 
 ```
-$ git clone git@github.com:polius/Meteor.git
+$ git clone https://github.com/polius/Meteor.git
 ```
 
 ### 1.2. Install the Requirements
 
 ```
-$ cd meteor/app/
+$ cd Meteor/app/
 $ pip install -r requirements.txt --user
 ```
 
@@ -39,11 +39,11 @@ Before executing the Meteor, there are two files that have to be filled:
 
 ### credentials.json
 
-[How to setup 'credentials.json']()
+[How to setup 'credentials.json'](https://github.com/polius/Meteor/wiki/How-to-setup-'credentials.json')
 
 ### query_execution.py
 
-[How to setup 'query_execution.py']()
+[How to setup 'query_execution.py'](https://github.com/polius/Meteor/wiki/How-to-setup-'query_execution.py')
 
 # 3. EXECUTION
 
