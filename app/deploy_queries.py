@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
-import imp
 import re
-import signal
-import datetime
+import imp
 import json
+import signal
 import multiprocessing
 from multiprocessing.managers import SyncManager
 from query import query
@@ -202,10 +201,9 @@ class deploy_queries:
             # Enable CTRL+C events
             signal.signal(signal.SIGINT, signal.default_int_handler)
 
-    # Parse datetime formats in JSON
+    # Parse JSON objects
     def __dtSerializer(self, obj):
-        if isinstance(obj, datetime.datetime):
-            return obj.__str__()
+        return obj.__str__()
 
     # Handle SIGINT from SyncManager object
     def __mgr_sig_handler(self, signal, frame):
