@@ -66,7 +66,7 @@ class mysql:
                     print(colored("--> Rollback successfully performed.", 'green'))
                 except Exception as e2:
                     print(colored("--> Rollback not performed. Error: {}".format(e2), 'red'))
-            raise
+            raise e
 
         except KeyboardInterrupt:
             if self._args.env_start_deploy:
@@ -80,7 +80,7 @@ class mysql:
 
         finally:
             # Close PyMySQL Connection
-            if self._connection is not None:
+            if self._connection is not None and self._connection.open:
                 self._connection.close()
 
     def get_all_databases(self):
