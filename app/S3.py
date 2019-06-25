@@ -77,4 +77,4 @@ class S3:
 
         # Replace 'credentials.json' with the Anonymized Version
         with open(deploy_path + 'credentials.json', 'w') as credentials_file:
-            credentials_file.write(json.dumps(credentials_anonymized))
+            credentials_file.write(json.dumps(credentials_anonymized, separators=(',', ':')))

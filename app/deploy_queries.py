@@ -55,7 +55,7 @@ class deploy_queries:
                 execution_log_path = "{0}execution/{1}/{1}_before.json".format(self._logs_path, self._environment_data['region'])
 
             with open(execution_log_path, 'w') as outfile:
-                json.dump(self._query.execution_log, outfile, default=self.__dtSerializer)
+                json.dump(self._query.execution_log, outfile, default=self.__dtSerializer, separators=(',', ':'))
 
             # Enable CTRL+C events
             signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -160,7 +160,7 @@ class deploy_queries:
         execution_log_path = "{0}/logs/{1}/execution/{2}/{3}/{4}.json".format(self._script_path, self._execution_name, self._environment_data['region'], server['name'], database)
         if len(self._query.execution_log['output']) > 0:
             with open(execution_log_path, 'w') as outfile:
-                json.dump(self._query.execution_log, outfile, default=self.__dtSerializer)
+                json.dump(self._query.execution_log, outfile, default=self.__dtSerializer, separators=(',', ':'))
 
         # Check Errors
         for log in self._query.execution_log['output']:
@@ -196,7 +196,7 @@ class deploy_queries:
                 execution_log_path = "{0}execution/{1}/{1}_after.json".format(self._logs_path, self._environment_data['region'])
 
             with open(execution_log_path, 'w') as outfile:
-                json.dump(self._query.execution_log, outfile, default=self.__dtSerializer)
+                json.dump(self._query.execution_log, outfile, default=self.__dtSerializer, separators=(',', ':'))
 
             # Enable CTRL+C events
             signal.signal(signal.SIGINT, signal.default_int_handler)

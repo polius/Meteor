@@ -14,6 +14,7 @@ import json
 import imp
 import uuid
 from multiprocessing.managers import SyncManager
+from collections import OrderedDict
 from datetime import timedelta
 from colors import colored
 from deploy_environments import deploy_environments
@@ -83,7 +84,7 @@ class deploy:
     def __load_credentials(self, json_path):
         try:
             with open(json_path) as data_file:
-                data = json.load(data_file)
+                data = json.load(data_file, object_pairs_hook=OrderedDict)
                 return data
 
         except Exception:
@@ -93,7 +94,7 @@ class deploy:
     def __load_query_template(self, json_path):
         try:
             with open(json_path) as data_file:
-                data = json.load(data_file)
+                data = json.load(data_file, object_pairs_hook=OrderedDict)
                 return data
 
         except Exception:
@@ -829,12 +830,12 @@ class deploy:
                             for server_file in server_files:
                                 # Merging Database Logs
                                 with open(execution_logs_path + region_item + '/' + server_item + '/' + server_file) as database_log:
-                                    json_decoded = json.load(database_log, strict=False)
+                                    json_decoded = json.load(database_log, strict=False, object_pairs_hook=OrderedDict)
                                     server_logs.extend(json_decoded['output'])
 
                             # Write Server File
                             with open(execution_logs_path + region_item + '/' + server_item + '.json', 'w') as f:
-                                json.dump({"output": server_logs}, f)
+                                json.dump({"output": server_logs}, f, separators=(',', ':'))
 
                     # Merging Region Logs
                     region_logs = []
@@ -842,12 +843,12 @@ class deploy:
                     for server_item in server_items:
                         if os.path.isfile(execution_logs_path + region_item + '/' + server_item):
                             with open(execution_logs_path + region_item + '/' + server_item) as server_log:
-                                json_decoded = json.load(server_log, strict=False)
+                                json_decoded = json.load(server_log, strict=False, object_pairs_hook=OrderedDict)
                                 region_logs.extend(json_decoded['output'])
 
                     # Write Region Logs
                     with open(execution_logs_path + region_item + '.json', 'w') as f:
-                        json.dump({"output": region_logs}, f)
+                        json.dump({"output": region_logs}, f, separators=(',', ':'))
 
             # Merging Environment Logs
             environment_logs = []
@@ -856,12 +857,12 @@ class deploy:
             for region_item in region_items:
                 if os.path.isfile(execution_logs_path + region_item):
                     with open(execution_logs_path + region_item) as f:
-                        json_decoded = json.load(f, strict=False)
+                        json_decoded = json.load(f, strict=False, object_pairs_hook=OrderedDict)
                         environment_logs.extend(json_decoded['output'])
 
             # Write Environment Log
             with open(self._LOGS_PATH + 'meteor.js', 'w') as f:
-                json.dump({"output": environment_logs}, f)
+                json.dump({"output": environment_logs}, f, separators=(',', ':'))
 
             # Compress Execution Logs and Delete Uncompressed Folder
             shutil.make_archive(self._LOGS_PATH + 'execution', 'gztar', self._LOGS_PATH + 'execution')

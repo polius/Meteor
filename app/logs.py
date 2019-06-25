@@ -45,13 +45,13 @@ class logs:
         try:
             with open(self._LOGS_PATH + 'meteor.js', 'w') as write_file:
                 # Write Parsed Data
-                write_file.write('var DATA = {};\n'.format(json.dumps(logs)))
+                write_file.write('var DATA = {};\n'.format(json.dumps(logs, separators=(',', ':'))))
                 # Write Sorted Displayed Columns
                 write_file.write('var COLUMNS = ["meteor_timestamp", "meteor_environment", "meteor_region", "meteor_server", "meteor_database", "meteor_query", "meteor_status", "meteor_response", "meteor_execution_time", "meteor_output"];\n')
                 # Write the Execution Information
                 summary = summary_raw
                 summary['mode'] = 'deploy' if self._args.deploy else 'test' 
-                write_file.write('var INFO = {};\n'.format(json.dumps(summary)))
+                write_file.write('var INFO = {};\n'.format(json.dumps(summary, separators=(',', ':'))))
                 # If there's an Exception, add it to the file
                 if exception is not None and not exception.startswith('[QUERY_ERROR]'):
                     parsed_exception = exception.replace('"', '\\"').replace("\n", "\\n")
