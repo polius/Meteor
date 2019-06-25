@@ -190,9 +190,12 @@ function build_columns() {
           if (typeof meteor_status !== 'undefined') {
             meteor_status = (meteor_status == '""') ? '' : meteor_status.replace(/"/g, '');
             if (meteor_status == '1') {
-              if (params.data.meteor_query.toLowerCase().startsWith("select")) return 'Query successfully executed';
+              if (INFO['mode'] == 'deploy' || (INFO['mode'] == 'test' && params.data.meteor_query.toLowerCase().startsWith("select"))) {
+                return 'Query successfully executed';
+              }
               else if (INFO['mode'] == 'test') return 'Test succeeded';
             }
+            else return params.data.meteor_response;
           }
           else return params.data.meteor_response;
         }
