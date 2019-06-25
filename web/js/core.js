@@ -1440,6 +1440,7 @@ $("#error-modal-accept").click(function () {
 });
 
 function show_error(title, message, code) {
+  $("#import-button").removeClass("is-loading");
   $("#error-title").text(title);
   $("#error-message-body").html('<p>' + message + '</p>');
   $("#error-message-code").html('<p>' + code + '</p>');
@@ -1536,6 +1537,11 @@ function apply_light_theme() {
   document.getElementById("transformation-modal-cancel").classList.remove('is-light');
   document.getElementById("export-modal-cancel").classList.remove('is-light');
   document.getElementById("error-modal-accept").classList.remove('is-light');
+  document.getElementById("error-title").style.color = '#dcdcde';
+  document.getElementById("error-modal-accept").classList.remove('is-light');
+  document.getElementById("error-message-code").style.backgroundColor = '#f5f5f5';
+  document.getElementById("error-message-code").style.border = '1px solid #ccc';
+  document.getElementById("error-message-code").style.color = '#333';
 
   // Select2
   remove_style(document.getElementsByClassName("select2-selection--single"), 'background-color');
@@ -1619,6 +1625,9 @@ function apply_dark_theme() {
   document.getElementById("transformation-modal-cancel").classList.add('is-light');
   document.getElementById("export-modal-cancel").classList.add('is-light');
   document.getElementById("error-modal-accept").classList.add('is-light');
+  document.getElementById("error-message-code").style.backgroundColor = '#303843';
+  document.getElementById("error-message-code").style.border = '1px solid #4f4d56';
+  document.getElementById("error-message-code").style.color = '#dcdcde';
 
   // Select2
   add_style(document.getElementsByClassName("select2-selection--single"), 'backgroundColor', '#3a3843');
