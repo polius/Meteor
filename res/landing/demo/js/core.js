@@ -943,6 +943,7 @@ function enable_filter_modal(option) {
 // TRANSFORMATION MODAL
 // ##############################################################################################
 var transformation_query_selected = 0;
+var transformation_checkbox_checked = false;
 
 $("#transformation-button").click(function () {
   // Add Loading Class to Button
@@ -953,11 +954,23 @@ $("#transformation-button").click(function () {
     enable_transformation_modal(true);
     // Set Dropdown Values
     $("#transformation-query").val(transformation_query_selected).trigger('change');
+    // Uncheck Transformation Checkbox
+    $("#transformation_checkbox").prop("checked", transformation_checkbox_checked);
+    $("#transformation_checkbox").attr("disabled", $("#transformation-query").val() == 0);
     // Show Transformation Modal
     $("#transformation-modal").addClass("is-active");
     // Remove Loading Class to Button
     $("#transformation-button").removeClass("is-loading");
   }, 100);
+});
+
+$("#transformation-query").on('select2:select', function (e) {
+  if (e.params.data.id == 0) $("#transformation_checkbox").prop("checked", false);
+  $("#transformation_checkbox").attr("disabled", e.params.data.id == 0);
+});
+
+$("#transformation_checkbox_text").click(function () {
+  if ($("#transformation-query").val() != 0) $("#transformation_checkbox").prop("checked", !$("#transformation_checkbox").is(":checked"));
 });
 
 $("#transformation-modal-close").click(function () {
@@ -979,6 +992,8 @@ $("#transformation-modal-save").click(function () {
   setTimeout(function () {
     // Store Dropdown Values
     transformation_query_selected = $('#transformation-query').val();
+    // Store Checkbox Value
+    transformation_checkbox_checked = $("#transformation_checkbox").is(":checked");
     // Apply Filter
     transform_data();
     // Remove Button Loading Effect
@@ -1094,11 +1109,13 @@ function compile_query(data) {
 
     // Rebuild Data
     if (row['meteor_output'] == '[]') {
-      var new_row = JSON.parse(JSON.stringify(row));
-      for (var c = 0; c < columns.length; ++c) {
-        new_row[columns[c]] = '';
+      if (!transformation_checkbox_checked) {
+        var new_row = JSON.parse(JSON.stringify(row));
+        for (var c = 0; c < columns.length; ++c) {
+          new_row[columns[c]] = '';
+        }
+        new_data.push(new_row);
       }
-      new_data.push(new_row);
     }
     else if (row['meteor_output'] != '') {
       for (var j = 0; j < row['meteor_output'].length; ++j) {
