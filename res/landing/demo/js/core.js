@@ -33,8 +33,8 @@ var SETTINGS_PINNED = {};
 // +--------+
 // Global Filter Modal Default Dropdown Variables
 var FILTER_ENVIRONMENT = []
-var FILTER_ENVIRONMENT_ID = [];
-var FILTER_SERVER_SQL = [];
+var FILTER_REGION = [];
+var FILTER_SERVER = [];
 var FILTER_DATABASE = [];
 var FILTER_QUERY = [];
 // Global Filter Modal Non Default Dropdown Variables
@@ -58,9 +58,6 @@ var THEME = 'light';
 // ##############################################################################################
 // INIT Methods
 // ##############################################################################################
-
-// Convert all Dropdown to Select2 Class
-$('.js-example-basic-single').select2();
 
 // Init Default Theme
 init_theme();
@@ -113,7 +110,7 @@ function check_uri() {
 function get_column_name(column) {
   var column_name;
   if (column.substring(0, 7) == 'meteor_') column_name = column.substring(7).replace('_', ' ').replace(/\b\w/g, function (l) { return l.toUpperCase() }).replace('Sql', 'SQL').replace('Id', 'ID')
-  else column_name = column.replace('_', ' ').replace(/\b\w/g, function (l) { return l.toUpperCase() }).replace('Sql', 'SQL').replace('Id', 'ID')
+  else column_name = column
   return column_name;
 }
 
@@ -233,10 +230,9 @@ function build_columns() {
     }
     // Results Columns
     else {
-      column_name = COLUMNS[i].replace('_', ' ').replace(/\b\w/g, function (l) { return l.toUpperCase() }).replace('Sql', 'SQL')
       AG_GRID_COLUMNS[RESULT_index]['children'].push(
         {
-          headerName: column_name,
+          headerName: COLUMNS[i],
           field: COLUMNS[i],
           width: 100,
           valueGetter: function (params) {
@@ -294,15 +290,15 @@ function onFirstDataRendered(params) {
         $("#rowCount").fadeIn();
         $("#footer").fadeIn();
 
-        // Enable All Components
+        // Enable Components
         $("#quickFilterInput").attr("disabled", false);
         $("#delete-button").attr("disabled", false);
         $("#theme-button").attr("disabled", false);
-        $("#info-button").attr("disabled", false);
+        $("#info-button").attr("disabled", typeof INFO == 'undefined');
         $("#settings-button").attr("disabled", false);
         $("#filter-button").attr("disabled", false);
-        $("#transformation-button").attr("disabled", false);
-        $("#errors-button").attr("disabled", false);
+        $("#transformation-button").attr("disabled", !COLUMNS.includes('meteor_query') || !COLUMNS.includes('meteor_output'));
+        $("#errors-button").attr("disabled", !COLUMNS.includes('meteor_database') || !COLUMNS.includes('meteor_query') || !COLUMNS.includes('meteor_status') || !COLUMNS.includes('meteor_response'));
         $("#export-button").attr("disabled", false);
 
         // Disable Loading on Import Button
@@ -404,10 +400,10 @@ $("#import-file").change(function (event) {
   $("#import-button").addClass("is-loading");
 
   var error_title = "Invalid File Type";
-  var error_message = "Please use <b>Meteor File Type</b>. Example of file <b>meteor.js</b>:<br><br>";
+  var error_message = "Please use a <b>Meteor</b> file format. Example of a <b>meteor.js</b> file:<br><br>";
   var error_code = `
     var DATA = [{\"column_1\": \"value_1\", \"column_2\": \"value_2\"}];<br><br>
-    // Optional Variable: Defining Column Order<br>
+    // Optional Variable: Define column order<br>
     var COLUMNS = ["column_1", "column_2"];
   `;
   var file = event.target.files[0];
@@ -464,6 +460,9 @@ function init_meteor() {
   // Init Transformation Modal
   $("#loading").append("<p>- Initializing Transformation Modal ...</p>");
   init_transformation_modal();
+  // Convert all Select Dropdown to Select2 Class (+ Apply Theme)
+  $("#loading").append("<p>- Stylizing Components ...</p>");
+  init_select2()
   // Building Grid
   $("#loading").append("<p>- Assembling Grid ...</p>");
   build_grid();
@@ -483,6 +482,12 @@ function compile_meteor() {
   for (var i = 0; i < COLUMNS.length; ++i) {
     if (!ENVIRONMENT_COLUMNS.includes(COLUMNS[i]) && !EXECUTION_COLUMNS.includes(COLUMNS[i])) FILTER_CUSTOM_COLUMNS.push(COLUMNS[i]);
   }
+}
+
+function init_select2() {
+  $('.js-example-basic-single').select2();
+  if (THEME == 'light') apply_light_theme_select2();
+  else apply_dark_theme();
 }
 
 // ##############################################################################################
@@ -573,12 +578,12 @@ function init_settings_modal() {
 
 function set_column_pinned(column_name, is_pinned) {
   if (is_pinned) {
-    $("#" + column_name + "_pinned_svg").css('fill', '#ff6666');
+    $("#" + column_name + "_pinned_svg").css('fill', '#ff6961');
     $("#" + column_name + "_pinned_svg").css('margin-top', '2px');
     $("#" + column_name + "_pinned_svg").html('<use xlink:href="css/open-iconic.svg#lock-locked"></use>');
   }
   else {
-    $("#" + column_name + "_pinned_svg").css('fill', '#66cc66');
+    $("#" + column_name + "_pinned_svg").css('fill', '#00c4a7');
     $("#" + column_name + "_pinned_svg").css('margin-top', '0px');
     $("#" + column_name + "_pinned_svg").html('<use xlink:href="css/open-iconic.svg#lock-unlocked"></use>');
   }
@@ -653,86 +658,84 @@ function close_info_modal() {
 }
 
 function init_info_modal() {
-  if (typeof INFO == 'undefined') $("#info-button").attr("disabled", true);
-  else {
-    // +------+
-    // | TEST |
-    // +------+
-    if (INFO['mode'] == 'test') {
-      // Queries Tested
-      $("#info-modal-fields").prepend('<span id="info-queries" class="tag is-info" style="font-size:1.1rem; font-weight:500; width:100%;">Total Queries: <b style="margin-left:5px;">' + INFO['total_queries'] + '</b></span>');
-      $("#info-execution-title").text('TEST EXECUTION');
-      // Queries Passed the Test Execution
-      var info_execution_checks_successful_value = INFO['total_queries'] - INFO['queries_failed'];
-      var info_execution_checks_successful_percentage = 0.0;
-      if (INFO['total_queries'] != 0) {
-        info_execution_checks_successful_percentage = (Number.parseFloat(INFO['total_queries'] - INFO['queries_failed']) / Number.parseFloat(INFO['total_queries']) * 100).toFixed(2);
-      }
-      $("#info-modal-fields").append('<div style="margin-top:10px;"><span id="info-execution-checks-successful" class="tag is-success" style="font-size:1.1rem; font-weight:500; margin-bottom: 0.25rem; width:100%; background-color:#00c4a7;">Queries Succeeded: <b style="margin-left:5px;">' + info_execution_checks_successful_value + '</b><span style="font-weight:400; margin-left:5px;">(~' + info_execution_checks_successful_percentage + '%)</span></span></div>');
-
-      // Queries Failed the Test Execution
-      var execution_checks_failed_value = INFO['queries_failed'];
-      var execution_checks_failed_percentage = 0.0;
-      if (INFO['total_queries'] != 0) {
-        execution_checks_failed_percentage = (Number.parseFloat(INFO['queries_failed']) / Number.parseFloat(INFO['total_queries']) * 100).toFixed(2);
-      }
-      $("#info-modal-fields").append('<div><span id="info-execution-checks-failed" class="tag" style="font-size:1.1rem; font-weight:500; width:100%; background-color:#ff6961;">Queries Failed: <b style="margin-left:5px;">' + execution_checks_failed_value + '</b><span style="font-weight:400; margin-left:5px;">(~' + execution_checks_failed_percentage + '%)</span></span></div>');
-      if (INFO['queries_failed'] == 0) $("#info-execution-checks-failed").addClass("is-success");
-      else $("#info-execution-checks-failed").addClass("is-danger");
+  if (typeof INFO == 'undefined') return;
+  // +------+
+  // | TEST |
+  // +------+
+  if (INFO['mode'] == 'test') {
+    // Queries Tested
+    $("#info-modal-fields").prepend('<span id="info-queries" class="tag is-info" style="font-size:1.1rem; font-weight:500; width:100%;">Total Queries: <b style="margin-left:5px;">' + INFO['total_queries'] + '</b></span>');
+    $("#info-execution-title").text('TEST EXECUTION');
+    // Queries Passed the Test Execution
+    var info_execution_checks_successful_value = INFO['total_queries'] - INFO['queries_failed'];
+    var info_execution_checks_successful_percentage = 0.0;
+    if (INFO['total_queries'] != 0) {
+      info_execution_checks_successful_percentage = (Number.parseFloat(INFO['total_queries'] - INFO['queries_failed']) / Number.parseFloat(INFO['total_queries']) * 100).toFixed(2);
     }
+    $("#info-modal-fields").append('<div style="margin-top:10px;"><span id="info-execution-checks-successful" class="tag is-success" style="font-size:1.1rem; font-weight:500; margin-bottom: 0.25rem; width:100%; background-color:#00c4a7;">Queries Succeeded: <b style="margin-left:5px;">' + info_execution_checks_successful_value + '</b><span style="font-weight:400; margin-left:5px;">(~' + info_execution_checks_successful_percentage + '%)</span></span></div>');
 
-    // +--------+
-    // | DEPLOY |
-    // +--------+
-    else if (INFO['mode'] == 'deploy') {
-      // Queries Executed
-      $("#info-modal-fields").prepend('<span id="info-queries" class="tag is-info" style="font-size:1.1rem; font-weight:500; width:100%;">Queries Executed: <b style="margin-left:5px;">' + INFO['total_queries'] + '</b></span>');
-      $("#info-execution-title").text('DEPLOYMENT');
-      // Queries Succeeded
-      var info_queries_succeeded_value = INFO['total_queries'] - INFO['meteor_query_error'];
-      var info_queries_succeeded_percentage = 0.0;
-      if (INFO['total_queries'] != 0) {
-        info_queries_succeeded_percentage = (Number.parseFloat(Number.parseInt(INFO['total_queries']) - Number.parseInt(INFO['meteor_query_error'])) / Number.parseFloat(INFO['total_queries']) * 100).toFixed(2);
-      }
-      $("#info-modal-fields").append('<div style="margin-top:10px;"><span id="info-queries-succeeded" class="tag" style="font-size:1.1rem; font-weight:500; margin-bottom: 0.25rem; width:100%; background-color:#00c4a7; color:#fff;">Queries Succeeded: <b style="margin-left:5px;">' + info_queries_succeeded_value + '</b><span style="font-weight:400; margin-left:5px;">(~' + info_queries_succeeded_percentage + '%)</span></span></div>');
-
-      // Queries Failed
-      var info_queries_failed_value = INFO['meteor_query_error'];
-      var queries_failed_percentage = 0.0;
-      if (INFO['total_queries'] != 0) {
-        queries_failed_percentage = (Number.parseFloat(INFO['meteor_query_error']) / Number.parseFloat(INFO['total_queries']) * 100).toFixed(2);
-      }
-      $("#info-modal-fields").append('<div><span id="info-queries-failed" class="tag" style="font-size:1.1rem; font-weight:500; margin-bottom: 0.25rem; width:100%; background-color:#ff6961; color:#fff;">Queries Failed: <b style="margin-left:5px;">' + info_queries_failed_value + '</b> <span style="font-weight:400; margin-left:5px;">(~' + queries_failed_percentage + '%)</span></span></div>');
+    // Queries Failed the Test Execution
+    var execution_checks_failed_value = INFO['queries_failed'];
+    var execution_checks_failed_percentage = 0.0;
+    if (INFO['total_queries'] != 0) {
+      execution_checks_failed_percentage = (Number.parseFloat(INFO['queries_failed']) / Number.parseFloat(INFO['total_queries']) * 100).toFixed(2);
     }
+    $("#info-modal-fields").append('<div><span id="info-execution-checks-failed" class="tag" style="font-size:1.1rem; font-weight:500; width:100%; background-color:#ff6961;">Queries Failed: <b style="margin-left:5px;">' + execution_checks_failed_value + '</b><span style="font-weight:400; margin-left:5px;">(~' + execution_checks_failed_percentage + '%)</span></span></div>');
+    if (INFO['queries_failed'] == 0) $("#info-execution-checks-failed").addClass("is-success");
+    else $("#info-execution-checks-failed").addClass("is-danger");
+  }
 
-    // +--------+
-    // | ERRORS |
-    // +--------+
-    if (typeof ERROR == 'undefined') {
-      var test_execution = ('queries_failed' in INFO) ? 'Test ' : ''
-      if (('meteor_query_error' in INFO && INFO['meteor_query_error'] > 0) || ('queries_failed' in INFO && INFO['queries_failed'] > 0)) {
-        $("#info-modal-fields").append('<h3 class="is-info" style="margin-top: 1.0rem; text-size:0.9rem;">' + test_execution + 'Execution Finished With Errors</h3>');
-      }
-      else {
-        $("#info-modal-fields").append('<h3 class="is-info" style="margin-top: 1.0rem; text-size:0.9rem;">' + test_execution + 'Execution Finished Successfully</h3>');
-      }
+  // +--------+
+  // | DEPLOY |
+  // +--------+
+  else if (INFO['mode'] == 'deploy') {
+    // Queries Executed
+    $("#info-modal-fields").prepend('<span id="info-queries" class="tag is-info" style="font-size:1.1rem; font-weight:500; width:100%;">Queries Executed: <b style="margin-left:5px;">' + INFO['total_queries'] + '</b></span>');
+    $("#info-execution-title").text('DEPLOYMENT');
+    // Queries Succeeded
+    var info_queries_succeeded_value = INFO['total_queries'] - INFO['meteor_query_error'];
+    var info_queries_succeeded_percentage = 0.0;
+    if (INFO['total_queries'] != 0) {
+      info_queries_succeeded_percentage = (Number.parseFloat(Number.parseInt(INFO['total_queries']) - Number.parseInt(INFO['meteor_query_error'])) / Number.parseFloat(INFO['total_queries']) * 100).toFixed(2);
     }
-    else if (ERROR == '') {
-      // Execution Interrupted
-      $("#info-modal-fields").append('<h3 class="is-info" style="margin-top: 1.0rem; margin-bottom: 1.0rem;">Execution Interrupted</h3>');
+    $("#info-modal-fields").append('<div style="margin-top:10px;"><span id="info-queries-succeeded" class="tag" style="font-size:1.1rem; font-weight:500; margin-bottom: 0.25rem; width:100%; background-color:#00c4a7; color:#fff;">Queries Succeeded: <b style="margin-left:5px;">' + info_queries_succeeded_value + '</b><span style="font-weight:400; margin-left:5px;">(~' + info_queries_succeeded_percentage + '%)</span></span></div>');
+
+    // Queries Failed
+    var info_queries_failed_value = INFO['meteor_query_error'];
+    var queries_failed_percentage = 0.0;
+    if (INFO['total_queries'] != 0) {
+      queries_failed_percentage = (Number.parseFloat(INFO['meteor_query_error']) / Number.parseFloat(INFO['total_queries']) * 100).toFixed(2);
+    }
+    $("#info-modal-fields").append('<div><span id="info-queries-failed" class="tag" style="font-size:1.1rem; font-weight:500; margin-bottom: 0.25rem; width:100%; background-color:#ff6961; color:#fff;">Queries Failed: <b style="margin-left:5px;">' + info_queries_failed_value + '</b> <span style="font-weight:400; margin-left:5px;">(~' + queries_failed_percentage + '%)</span></span></div>');
+  }
+
+  // +--------+
+  // | ERRORS |
+  // +--------+
+  if (typeof ERROR == 'undefined') {
+    var test_execution = ('queries_failed' in INFO) ? 'Test ' : ''
+    if (('meteor_query_error' in INFO && INFO['meteor_query_error'] > 0) || ('queries_failed' in INFO && INFO['queries_failed'] > 0)) {
+      $("#info-modal-fields").append('<h3 class="is-info" style="margin-top: 1.0rem; text-size:0.9rem;">' + test_execution + 'Execution Finished With Errors</h3>');
     }
     else {
-      // Execution Failed
-      $("#info-modal-fields").append('<h3 class="is-info" style="margin-top: 1.0rem; margin-bottom: 1.0rem;">Execution Failed. An error has been detected in <b>query_execution.py</b></h3>');
-      $("#info-modal-fields").append('<h3 class="tag is-danger" style="background-color:#f03434; padding-top:5px; padding-bottom: 5px; height: auto; font-size:0.95rem; white-space: pre-wrap; margin-bottom: 1.0rem;">' + ERROR + '</h3>');
+      $("#info-modal-fields").append('<h3 class="is-info" style="margin-top: 1.0rem; text-size:0.9rem;">' + test_execution + 'Execution Finished Successfully</h3>');
     }
+  }
+  else if (ERROR == '') {
+    // Execution Interrupted
+    $("#info-modal-fields").append('<h3 class="is-info" style="margin-top: 1.0rem; margin-bottom: 1.0rem;">Execution Interrupted</h3>');
+  }
+  else {
+    // Execution Failed
+    $("#info-modal-fields").append('<h3 class="is-info" style="margin-top: 1.0rem; margin-bottom: 1.0rem;">Execution Failed. An error has been detected in <b>query_execution.py</b></h3>');
+    $("#info-modal-fields").append('<h3 class="tag is-danger" style="background-color:#f03434; padding-top:5px; padding-bottom: 5px; height: auto; font-size:0.95rem; white-space: pre-wrap; margin-bottom: 1.0rem;">' + ERROR + '</h3>');
   }
 }
 
 // ##############################################################################################
 // FILTER MODAL
 // ##############################################################################################
-var filter_environment_selected = filter_environment_id_selected = filter_server_sql_selected = filter_database_selected = filter_query_selected = 0;
+var filter_environment_selected = filter_region_selected = filter_server_selected = filter_database_selected = filter_query_selected = 0;
 var data = []
 
 $("#filter-button").click(function () {
@@ -745,8 +748,8 @@ $("#filter-button").click(function () {
 
     // Set Dropdown Values
     $("#filter-environment").val(filter_environment_selected).trigger('change');
-    $("#filter-region").val(filter_environment_id_selected).trigger('change');
-    $("#filter-server-sql").val(filter_server_sql_selected).trigger('change');
+    $("#filter-region").val(filter_region_selected).trigger('change');
+    $("#filter-server").val(filter_server_selected).trigger('change');
     $("#filter-database").val(filter_database_selected).trigger('change');
     $("#filter-query").val(filter_query_selected).trigger('change');
     // Show Filter Modal
@@ -775,8 +778,8 @@ $("#filter-modal-save").click(function () {
   setTimeout(function () {
     // Store Dropdown Values
     filter_environment_selected = $('#filter-environment').val();
-    filter_environment_id_selected = $('#filter-region').val();
-    filter_server_sql_selected = $('#filter-server-sql').val();
+    filter_region_selected = $('#filter-region').val();
+    filter_server_selected = $('#filter-server').val();
     filter_database_selected = $('#filter-database').val();
     filter_query_selected = $('#filter-query').val();
     // Apply Filter
@@ -803,21 +806,21 @@ function init_filter_modal() {
   // Get Dropdown Values
   for (var i = 0; i < DATA.length; ++i) {
     if ('meteor_environment' in DATA[i] && !FILTER_ENVIRONMENT.includes(DATA[i]['meteor_environment'])) FILTER_ENVIRONMENT.push(DATA[i]['meteor_environment']);
-    if ('meteor_region' in DATA[i] && !FILTER_ENVIRONMENT_ID.includes(DATA[i]['meteor_region'])) FILTER_ENVIRONMENT_ID.push(DATA[i]['meteor_region']);
-    if ('meteor_server' in DATA[i] && !FILTER_SERVER_SQL.includes(DATA[i]['meteor_server'])) FILTER_SERVER_SQL.push(DATA[i]['meteor_server']);
+    if ('meteor_region' in DATA[i] && !FILTER_REGION.includes(DATA[i]['meteor_region'])) FILTER_REGION.push(DATA[i]['meteor_region']);
+    if ('meteor_server' in DATA[i] && !FILTER_SERVER.includes(DATA[i]['meteor_server'])) FILTER_SERVER.push(DATA[i]['meteor_server']);
     if ('meteor_database' in DATA[i] && !FILTER_DATABASE.includes(DATA[i]['meteor_database'])) FILTER_DATABASE.push(DATA[i]['meteor_database']);
     if ('meteor_query' in DATA[i] && !FILTER_QUERY.includes(DATA[i]['meteor_query'])) FILTER_QUERY.push(DATA[i]['meteor_query']);
   }
   // Sort Dropdown Values
   FILTER_ENVIRONMENT.sort();
-  FILTER_ENVIRONMENT_ID.sort();
-  FILTER_SERVER_SQL.sort();
+  FILTER_REGION.sort();
+  FILTER_SERVER.sort();
   FILTER_DATABASE.sort();
   FILTER_QUERY.sort();
   // Init Dropdown Values
   for (var i = 0; i < FILTER_ENVIRONMENT.length; ++i) $('#filter-environment').append('<option value="' + (i + 1) + '">' + FILTER_ENVIRONMENT[i] + '</option>');
-  for (var i = 0; i < FILTER_ENVIRONMENT_ID.length; ++i) $('#filter-region').append('<option value="' + (i + 1) + '">' + FILTER_ENVIRONMENT_ID[i] + '</option>');
-  for (var i = 0; i < FILTER_SERVER_SQL.length; ++i) $('#filter-server-sql').append('<option value="' + (i + 1) + '">' + FILTER_SERVER_SQL[i] + '</option>');
+  for (var i = 0; i < FILTER_REGION.length; ++i) $('#filter-region').append('<option value="' + (i + 1) + '">' + FILTER_REGION[i] + '</option>');
+  for (var i = 0; i < FILTER_SERVER.length; ++i) $('#filter-server').append('<option value="' + (i + 1) + '">' + FILTER_SERVER[i] + '</option>');
   for (var i = 0; i < FILTER_DATABASE.length; ++i) $('#filter-database').append('<option value="' + (i + 1) + '">' + FILTER_DATABASE[i] + '</option>');
   for (var i = 0; i < FILTER_QUERY.length; ++i) $('#filter-query').append('<option value="' + (i + 1) + '">' + FILTER_QUERY[i] + '</option>');
 
@@ -840,10 +843,10 @@ function init_filter_modal() {
     $('#filter-modal-content').append(`
       <div id="filter-modal-` + FILTER_CUSTOM_COLUMNS[i] + `-div" style="width:100%; margin-top:10px;">
         <!-- ` + column_name + ` -->
-        <div style="width:21%; float:left; margin-top:2px; text-align:right; padding-right: 10px;">
+        <div style="width:20%; float:left; margin-top:2px; text-align:right; padding-right: 10px;">
           <span>` + column_name + `:</span>
         </div>
-        <div style="width:79%; float:left;">
+        <div style="width:80%; float:left;">
           <select id="filter-` + FILTER_CUSTOM_COLUMNS[i] + `" class="js-example-basic-single" name="state" style="width:50%;">
             <option value="0">- All Data -</option>
           </select>
@@ -865,8 +868,8 @@ function filter_data() {
 
   // Get Dropdown Selected Text Values
   var environment_text = $("#filter-environment option:selected").text();
-  var environment_id_text = $("#filter-region option:selected").text();
-  var server_sql_text = $("#filter-server-sql option:selected").text();
+  var region_text = $("#filter-region option:selected").text();
+  var server_text = $("#filter-server option:selected").text();
   var database_text = $("#filter-database option:selected").text();
   var query_text = $("#filter-query option:selected").text();
 
@@ -894,11 +897,11 @@ function filter_data() {
     var row_match = true;
     // Default Elements
     var environment_condition = (filter_environment_selected == 0) ? 1 : ((data2filter[i]['meteor_environment'] == environment_text) ? 1 : 0)
-    var environment_id_condition = (filter_environment_id_selected == 0) ? 1 : ((data2filter[i]['meteor_region'] == environment_id_text) ? 1 : 0)
-    var server_sql_condition = (filter_server_sql_selected == 0) ? 1 : ((data2filter[i]['meteor_server'] == server_sql_text) ? 1 : 0)
+    var region_condition = (filter_region_selected == 0) ? 1 : ((data2filter[i]['meteor_region'] == region_text) ? 1 : 0)
+    var server_condition = (filter_server_selected == 0) ? 1 : ((data2filter[i]['meteor_server'] == server_text) ? 1 : 0)
     var database_condition = (filter_database_selected == 0) ? 1 : ((data2filter[i]['meteor_database'] == database_text) ? 1 : 0)
     var query_condition = (filter_query_selected == 0) ? 1 : ((data2filter[i]['meteor_query'] == query_text) ? 1 : 0)
-    row_match = (environment_condition & environment_id_condition & server_sql_condition & database_condition & query_condition);
+    row_match = (environment_condition & region_condition & server_condition & database_condition & query_condition);
     // Custom Elements
     for (var j = 0; j < FILTER_CUSTOM_COLUMNS.length; ++j) {
       var row_selected = $("#filter-" + FILTER_CUSTOM_COLUMNS[j]).val();
@@ -931,7 +934,7 @@ function enable_filter_modal(option) {
   // Enable/Disable All Filter Modal Objects
   $('#filter-environment').attr("disabled", !option);
   $('#filter-region').attr("disabled", !option);
-  $('#filter-server-sql').attr("disabled", !option);
+  $('#filter-server').attr("disabled", !option);
   $('#filter-database').attr("disabled", !option);
   $('#filter-query').attr("disabled", !option);
   $("#filter-modal-cancel").attr('disabled', !option);
@@ -954,7 +957,7 @@ $("#transformation-button").click(function () {
     enable_transformation_modal(true);
     // Set Dropdown Values
     $("#transformation-query").val(transformation_query_selected).trigger('change');
-    // Uncheck Transformation Checkbox
+    // Set Checkbox Value
     $("#transformation_checkbox").prop("checked", transformation_checkbox_checked);
     $("#transformation_checkbox").attr("disabled", $("#transformation-query").val() == 0);
     // Show Transformation Modal
@@ -1022,11 +1025,8 @@ function enable_transformation_modal(option) {
 }
 
 function init_transformation_modal() {
-  // Hide Transformation Modal if there's no query in DATA
-  if (!COLUMNS.includes('meteor_query') || !COLUMNS.includes('meteor_output')) {
-    $("#transformation-modal").hide();
-    $("#transformation-button").attr("disabled", true);
-  }
+  // Do not init if there's no query in DATA
+  if (!COLUMNS.includes('meteor_query') || !COLUMNS.includes('meteor_output')) return
 
   // Init UI Elements
   elements = ['meteor_query'];
@@ -1051,6 +1051,8 @@ function transform_data() {
   var data = [];
 
   if (transformation_query_selected != 0) {
+    // Disable Error Tab Button
+    $("#errors-button").attr("disabled", true);
     // Recompile Query
     data = compile_query(DATA);
     // Store Transformed Data
@@ -1061,6 +1063,9 @@ function transform_data() {
     api.setRowData(data);
   }
   else {
+    // Enable Error Tab Button
+    $("#errors-button").attr("disabled", false);
+    // Get Origin Data
     data = DATA.slice(0);
     // Clear Transformed Data
     TRANSFORMED_DATA = [];
@@ -1405,13 +1410,7 @@ function export_meteor(rows_to_export, columns_to_export) {
   // Generate Meteor Download File
   var data_to_export = '';
   data_to_export += 'var DATA = ' + JSON.stringify(rows_to_export) + ';\n';
-  data_to_export += 'var COLUMNS = ' + JSON.stringify(columns_to_export) + ';\n';
-  if (typeof INFO != 'undefined') {
-    data_to_export += 'var INFO = ' + JSON.stringify(INFO) + ';\n';
-  }
-  if (typeof ERROR != 'undefined') {
-    data_to_export += 'var ERROR = ' + JSON.stringify(ERROR) + ';\n';
-  }
+  data_to_export += 'var COLUMNS = ' + JSON.stringify(columns_to_export) + ';';
   download('meteor.js', data_to_export);
 }
 
@@ -1560,12 +1559,17 @@ function apply_light_theme() {
   document.getElementById("error-message-code").style.color = '#333';
 
   // Select2
+  apply_light_theme_select2();
+}
+
+function apply_light_theme_select2() {
   remove_style(document.getElementsByClassName("select2-selection--single"), 'background-color');
   add_style(document.getElementsByClassName("select2-selection__rendered"), 'color', '#444');
   remove_style(document.getElementsByClassName("select2-results"), 'backgroundColor');
-  select_elements = ["#filter-environment", "#filter-region", "#filter-server-sql", "#filter-database", "#filter-query", "#transformation-query", "#export-format"];
+  var select_elements = document.getElementsByClassName("js-example-basic-single");
   for (var i = 0; i < select_elements.length; i++) {
-    select2_theme(select_elements[i])
+    $(select_elements[i]).unbind('select2:open');
+    $(select_elements[i]).on('select2:open', __select2_apply_theme);
   }
 }
 
@@ -1646,17 +1650,17 @@ function apply_dark_theme() {
   document.getElementById("error-message-code").style.color = '#dcdcde';
 
   // Select2
-  add_style(document.getElementsByClassName("select2-selection--single"), 'backgroundColor', '#3a3843');
-  add_style(document.getElementsByClassName("select2-selection__rendered"), 'color', '#dcdcde');
-  select_elements = ["#filter-environment", "#filter-region", "#filter-server-sql", "#filter-database", "#filter-query", "#transformation-query", "#export-format"];
-  for (var i = 0; i < select_elements.length; i++) {
-    select2_theme(select_elements[i])
-  }
+  apply_dark_theme_select2();
 }
 
-function select2_theme(component) {
-  $(component).unbind('select2:open');
-  $(component).on('select2:open', __select2_apply_theme);
+function apply_dark_theme_select2() {
+  add_style(document.getElementsByClassName("select2-selection--single"), 'backgroundColor', '#3a3843');
+  add_style(document.getElementsByClassName("select2-selection__rendered"), 'color', '#dcdcde');
+  var select_elements = document.getElementsByClassName("js-example-basic-single");
+  for (var i = 0; i < select_elements.length; i++) {
+    $(select_elements[i]).unbind('select2:open');
+    $(select_elements[i]).on('select2:open', __select2_apply_theme);
+  }
 }
 
 function __select2_apply_theme() {
