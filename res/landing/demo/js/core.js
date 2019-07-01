@@ -253,11 +253,10 @@ function build_columns() {
 function build_grid() {
   gridOptions = {
     columnDefs: columnDefs,
-    enableRangeSelection: true,
+    rowSelection: 'multiple',
     animateRows: true,
     onModelUpdated: modelUpdated,
     debug: false,
-    rowSelection: 'multiple',
     defaultColDef: {
       editable: true,
       resizable: true,
@@ -267,19 +266,25 @@ function build_grid() {
     },
     stopEditingWhenGridLosesFocus: true,
     onFirstDataRendered: onFirstDataRendered,
-    onRowClicked: onRowClicked,
+    onSelectionChanged: onSelectionChanged,
     onVirtualColumnsChanged: onVirtualColumnsChanged,
     onDisplayedColumnsChanged: onVirtualColumnsChanged,
     onCellEditingStarted: onCellEditingStarted,
     onCellEditingStopped: onCellEditingStopped,
-    onViewportChanged: onViewportChanged
+    onViewportChanged: onViewportChanged,
+    onDragStarted: onDragStarted,
+    onColumnMoved: onColumnMoved
   };
 
-  if (THEME == 'light') gridOptions.rowStyle = { backgroundColor: '#fff', borderColor: '#eee' };
-  else if (THEME == 'dark') gridOptions.rowStyle = { backgroundColor: '#3a3843', borderColor: '#4f4d56' };
+  gridOptions.getRowClass = function () {
+    if (THEME == 'light') return 'light-row';
+    else if (THEME == 'dark') return 'dark-row';
+  }
 }
 
 function onFirstDataRendered(params) {
+  if (THEME == 'dark') apply_dark_theme_scrollbar();
+
   setTimeout(function () {
     $("#loading").hide('slow', function () {
       $("#bestHtml5Grid").show('slow', function () {
@@ -294,7 +299,7 @@ function onFirstDataRendered(params) {
         $("#quickFilterInput").attr("disabled", false);
         $("#delete-button").attr("disabled", false);
         $("#theme-button").attr("disabled", false);
-        $("#info-button").attr("disabled", typeof INFO == 'undefined');
+        $("#info-button").attr("disabled", (typeof INFO == 'undefined' || !('total_queries' in DATA)));
         $("#settings-button").attr("disabled", false);
         $("#filter-button").attr("disabled", false);
         $("#transformation-button").attr("disabled", !COLUMNS.includes('meteor_query') || !COLUMNS.includes('meteor_output'));
@@ -381,11 +386,8 @@ function removeSelectedRows() {
 var imported_file_name;
 
 $("#import-button").click(function () {
-  // If Grid is Loaded then Clean & Refresh Page. If not then just Open File Import Dialog 
-  if (typeof gridOptions != 'undefined') {
-    window.location.href = location.protocol + '//' + location.host + location.pathname;
-  }
-  else $("#import-file").trigger("click");
+  // Open File Import Dialog 
+  $("#import-file").trigger("click");
 });
 
 function updateProgress(evt) {
@@ -403,13 +405,26 @@ $("#import-file").change(function (event) {
   var error_message = "Please use a <b>Meteor</b> file format. Example of a <b>meteor.js</b> file:<br><br>";
   var error_code = `
     var DATA = [{\"column_1\": \"value_1\", \"column_2\": \"value_2\"}];<br><br>
-    // Optional Variable: Define column order<br>
+    // Define column order<br>
     var COLUMNS = ["column_1", "column_2"];
   `;
   var file = event.target.files[0];
+  if (typeof file == 'undefined') {
+    $("#import-button").removeClass("is-loading");
+    return;
+  }
   var extension = file['name'].substr((file['name'].lastIndexOf('.') + 1));
   if (extension != 'js') show_error(error_title, error_message, error_code);
   else {
+    // If Grid is Loaded then Destroy it and show the loading page again
+    if (typeof gridOptions != 'undefined') {
+      $("#loading").html('');
+      $("#bestHtml5Grid").hide();
+      $("#rowCount").hide();
+      $("#footer").hide();
+      $("#loading").show();
+      gridOptions.api.destroy();
+    }
     $("#theme-button").attr("disabled", true);
     $("#loading").append("<p><b>" + file['name'] + " (" + (file['size'] / 1024 / 1024).toFixed(2) + " MB)</b></p>");
     imported_file_name = file['name'];
@@ -658,7 +673,7 @@ function close_info_modal() {
 }
 
 function init_info_modal() {
-  if (typeof INFO == 'undefined') return;
+  if (typeof INFO == 'undefined' || !('total_queries' in DATA)) return;
   // +------+
   // | TEST |
   // +------+
@@ -1069,6 +1084,9 @@ function transform_data() {
     data = DATA.slice(0);
     // Clear Transformed Data
     TRANSFORMED_DATA = [];
+    // Set Origin Columns
+    var columnDefs = gridOptions.columnDefs.slice(0);
+    api.setColumnDefs(columnDefs);
     // Set All Columns Visible
     for (var i = 0; i < COLUMNS.length; ++i) set_column_visible(COLUMNS[i], true);
     // Unpin Database Column
@@ -1151,6 +1169,7 @@ function compile_query(data) {
 
   // Set Columns to Default
   var columnDefs = gridOptions.columnDefs.slice(0);
+  api.setColumnDefs(columnDefs);
   for (var i = 0; i < columnDefs.length; ++i) {
     if (columnDefs['headerName'] == 'Results') {
       columnDefs.pop(columnDefs[i]);
@@ -1411,6 +1430,7 @@ function export_meteor(rows_to_export, columns_to_export) {
   var data_to_export = '';
   data_to_export += 'var DATA = ' + JSON.stringify(rows_to_export) + ';\n';
   data_to_export += 'var COLUMNS = ' + JSON.stringify(columns_to_export) + ';';
+  if (typeof INFO != 'undefined') data_to_export += '\nvar INFO = {"mode": "' + INFO['mode'] + '"};';
   download('meteor.js', data_to_export);
 }
 
@@ -1489,7 +1509,7 @@ function apply_light_theme() {
   setCookie('theme', 'light', 365)
 
   // Change Button Title
-  document.getElementById("theme-button").setAttribute('title', 'Dark Mode');
+  document.getElementById("theme-button").setAttribute('title', 'Light Mode');
 
   // Body
   document.body.style.color = '#4a4a4a';
@@ -1499,6 +1519,8 @@ function apply_light_theme() {
   document.documentElement.style.setProperty('scrollbar-color', 'auto');
   // Scrollbar - Chrome
   document.documentElement.classList.remove("dark_scrollbar");
+  // Scrollbar - Chrome (AG-GRID)
+  apply_light_theme_scrollbar();
 
   // Input
   add_style(document.getElementsByClassName("input"), 'backgroundColor', '#fff');
@@ -1520,17 +1542,19 @@ function apply_light_theme() {
   add_style(document.getElementsByClassName("ag-header"), 'borderBottom', '1px solid #e2e2e2');
   remove_style(document.querySelectorAll(".ag-theme-material,.ag-header-cell,.ag-theme-material,.ag-header-group-cell,.ag-row"), 'border-color');
   remove_style(document.querySelectorAll(".ag-theme-material,.ag-header-cell,.ag-theme-material,.ag-header-group-cell,.ag-row"), 'background-color');
+  remove_style(document.getElementsByClassName("ag-row-no-focus"), 'background-color');
   add_style(document.getElementsByClassName("ag-row-no-focus"), 'backgroundColor', '#fff');
   add_style(document.getElementsByClassName("ag-row-selected"), 'backgroundColor', '#eee');
   add_style(document.getElementsByClassName("ag-row-animation"), 'backgroundColor', '#fff');
+  remove_class(document.getElementsByClassName("ag-row"), 'dark-row');
+  add_class(document.getElementsByClassName("ag-row"), 'light-row');
+
   // AG-GRID - Column Hover Styles
   remove_hover(document.querySelectorAll('.ag-header-group-cell,.ag-header-cell'));
   // AG-GRID - Column Icons (sort and filter)
   remove_style(document.getElementsByClassName("ag-icon"), 'filter');
   // AG-GRID - New Generated Virtual Rows Style
-  if (typeof gridOptions !== 'undefined') {
-    gridOptions.rowStyle = { backgroundColor: '#fff', borderColor: '#eee' };
-  }
+  if (typeof gridOptions !== 'undefined') gridOptions.rowClass = 'light-row';
   // AG-GRID - Pinned Columns
   add_style(document.querySelectorAll(".ag-theme-material .ag-ltr .ag-row.ag-cell-last-left-pinned, .ag-theme-material .ag-ltr .ag-cell:not(.ag-cell-focus).ag-cell-last-left-pinned"), 'borderRight', '1px solid #e2e2e2');
   add_style(document.querySelectorAll(".ag-theme-material .ag-pinned-left-header"), 'borderRight', '1px solid #e2e2e2');
@@ -1562,6 +1586,19 @@ function apply_light_theme() {
   apply_light_theme_select2();
 }
 
+function apply_light_theme_scrollbar() {
+  var components = document.querySelectorAll(".ag-body-viewport,.ag-body-horizontal-scroll-viewport");
+  for (var i = 0; i < components.length; ++i) {
+    components[i].classList.remove("dark_scrollbar");
+    components[i].style.overflow = 'hidden';
+  }
+  setTimeout(function () {
+    for (var i = 0; i < components.length; ++i) {
+      components[i].style.overflow = 'auto';
+    }
+  }, 100);
+}
+
 function apply_light_theme_select2() {
   remove_style(document.getElementsByClassName("select2-selection--single"), 'background-color');
   add_style(document.getElementsByClassName("select2-selection__rendered"), 'color', '#444');
@@ -1591,6 +1628,8 @@ function apply_dark_theme() {
   document.documentElement.style.setProperty('scrollbar-color', '#373540 #4f4d56');
   // Scrollbar - Chrome
   document.documentElement.classList.add("dark_scrollbar");
+  // Scrollbar - Chrome (AG-GRID)
+  apply_dark_theme_scrollbar();
 
   // Input
   add_style(document.getElementsByClassName("input"), 'backgroundColor', '#303843');
@@ -1615,14 +1654,15 @@ function apply_dark_theme() {
   add_style(document.getElementsByClassName("ag-row-no-focus"), 'borderColor', '#4f4d56');
   add_style(document.getElementsByClassName("ag-row-selected"), 'backgroundColor', '#303843');
   add_style(document.getElementsByClassName("ag-row-animation"), 'backgroundColor', '#3a3843');
+  remove_class(document.getElementsByClassName("ag-row"), 'light-row');
+  add_class(document.getElementsByClassName("ag-row"), 'dark-row');
+
   // AG-GRID - Column Hover
   add_hover(document.querySelectorAll('.ag-header-group-cell,.ag-header-cell'));
   // AG-GRID - Column Icons (sort and filter)
   add_style(document.getElementsByClassName("ag-icon"), 'filter', 'invert(100%)');
   // AG-GRID - New Generated Virtual Rows Style
-  if (typeof gridOptions !== 'undefined') {
-    gridOptions.rowStyle = { backgroundColor: '#3a3843', borderColor: '#4f4d56' };
-  }
+  if (typeof gridOptions !== 'undefined') gridOptions.rowClass = 'dark-row';
   // AG-GRID - Pinned Columns
   add_style(document.querySelectorAll(".ag-theme-material .ag-ltr .ag-row.ag-cell-last-left-pinned, .ag-theme-material .ag-ltr .ag-cell:not(.ag-cell-focus).ag-cell-last-left-pinned"), 'borderRight', '1px solid #4f4d56');
   add_style(document.querySelectorAll(".ag-theme-material .ag-pinned-left-header"), 'borderRight', '1px solid #4f4d56');
@@ -1651,6 +1691,19 @@ function apply_dark_theme() {
 
   // Select2
   apply_dark_theme_select2();
+}
+
+function apply_dark_theme_scrollbar() {
+  var components = document.querySelectorAll(".ag-body-viewport,.ag-body-horizontal-scroll-viewport");
+  for (var i = 0; i < components.length; ++i) {
+    components[i].classList.add("dark_scrollbar");
+    components[i].style.overflow = 'hidden';
+  }
+  setTimeout(function () {
+    for (var i = 0; i < components.length; ++i) {
+      components[i].style.overflow = 'auto';
+    }
+  }, 100);
 }
 
 function apply_dark_theme_select2() {
@@ -1685,14 +1738,16 @@ function __select2_apply_theme() {
   }
 }
 
-function onRowClicked() {
+function onSelectionChanged() {
   if (THEME == 'light') {
-    add_style(document.getElementsByClassName("ag-row-selected"), 'backgroundColor', '#eee');
     add_style(document.getElementsByClassName("ag-row-no-focus"), 'backgroundColor', '#fff');
+    remove_style(document.getElementsByClassName("ag-row-no-focus"), 'background-color');
+    add_style(document.getElementsByClassName("ag-row-selected"), 'backgroundColor', '#eee');
   }
   else if (THEME == 'dark') {
-    add_style(document.getElementsByClassName("ag-row-selected"), 'backgroundColor', '#303843');
     add_style(document.getElementsByClassName("ag-row-no-focus"), 'backgroundColor', '#3a3843');
+    remove_style(document.getElementsByClassName("ag-row-no-focus"), 'background-color');
+    add_style(document.getElementsByClassName("ag-row-selected"), 'backgroundColor', '#303843');
   }
 }
 
@@ -1707,7 +1762,7 @@ function onCellEditingStarted() {
 }
 
 function onCellEditingStopped() {
-  cellEditing[0].style.removeProperty('background-color');
+  if (THEME == 'dark') cellEditing[0].style.removeProperty('background-color');
 }
 
 function onVirtualColumnsChanged() {
@@ -1738,6 +1793,16 @@ function onViewportChanged() {
     add_style(document.querySelectorAll(".ag-theme-material .ag-ltr .ag-row.ag-cell-last-left-pinned, .ag-theme-material .ag-ltr .ag-cell:not(.ag-cell-focus).ag-cell-last-left-pinned"), 'borderRight', '1px solid #e2e2e2');
     add_style(document.querySelectorAll(".ag-theme-material .ag-pinned-left-header"), 'borderRight', '1px solid #e2e2e2');
   }
+}
+
+function onDragStarted() {
+  if (THEME == 'light') add_style(document.getElementsByClassName("ag-header-cell-moving"), 'background-color', '#f2f2f2');
+  else if (THEME == 'dark') add_style(document.getElementsByClassName("ag-header-cell-moving"), 'background-color', '#209cee');
+}
+
+function onColumnMoved() {
+  if (THEME == 'light') add_style(document.getElementsByClassName("ag-header-cell-moving"), 'background-color', '#f2f2f2');
+  else if (THEME == 'dark') add_style(document.getElementsByClassName("ag-header-cell-moving"), 'background-color', '#209cee');
 }
 
 function add_hover(components) {
@@ -1771,6 +1836,19 @@ function add_style(components, style_class, value) {
 function remove_style(components, style_class) {
   for (var i = 0; i < components.length; i++) {
     components[i].style.removeProperty(style_class);
+  }
+}
+
+
+function add_class(components, class_name) {
+  for (var i = 0; i < components.length; i++) {
+    components[i].classList.add(class_name);
+  }
+}
+
+function remove_class(components, class_name) {
+  for (var i = 0; i < components.length; i++) {
+    components[i].classList.remove(class_name);
   }
 }
 

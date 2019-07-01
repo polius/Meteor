@@ -44,11 +44,6 @@
       color: #ffcc33;
     }
 
-    .cell-empty {
-      background-color: #FFFFFF;
-      color: #FFFFFF;
-    }
-
     .delete-button {
       background-color: #ff6961;
       border-color: transparent;
@@ -103,20 +98,38 @@
     }
 
     .dark_scrollbar::-webkit-scrollbar {
-       -webkit-appearance: none;
+      -webkit-appearance: none;
       width: 15px;
       background-color: #4f4d56;
     }
-
+    .dark_scrollbar::-webkit-scrollbar-track {
+      background: #4f4d56;
+    }
     .dark_scrollbar::-webkit-scrollbar-thumb {
-      min-height:40px;
-      background-color: #373540;
+      min-height: 25px;
+      background: #373540;
       border: 3px solid transparent;
       border-radius: 10px;
       background-clip: content-box;
     }
     .dark_scrollbar::-webkit-scrollbar-corner {
-      background-color: #373540;
+      background: #373540;
+    }
+
+    .light-row {
+      background-color: #fff;
+      border-color: #eee;
+    }
+    .light-row:hover {
+      background-color: #fafafa;
+    }
+
+    .dark-row {
+      background-color: #3a3843;
+      border-color: #4f4d56 !important;
+    }
+    .dark-row:hover {
+      background-color: #30384360;
     }
   </style>
 
