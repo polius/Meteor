@@ -299,7 +299,7 @@ function onFirstDataRendered(params) {
         $("#quickFilterInput").attr("disabled", false);
         $("#delete-button").attr("disabled", false);
         $("#theme-button").attr("disabled", false);
-        $("#info-button").attr("disabled", (typeof INFO == 'undefined' || !('total_queries' in DATA)));
+        $("#info-button").attr("disabled", (typeof INFO == 'undefined' || !('total_queries' in INFO)));
         $("#settings-button").attr("disabled", false);
         $("#filter-button").attr("disabled", false);
         $("#transformation-button").attr("disabled", !COLUMNS.includes('meteor_query') || !COLUMNS.includes('meteor_output'));
@@ -673,7 +673,7 @@ function close_info_modal() {
 }
 
 function init_info_modal() {
-  if (typeof INFO == 'undefined' || !('total_queries' in DATA)) return;
+  if (typeof INFO == 'undefined' || !('total_queries' in INFO)) return;
   // +------+
   // | TEST |
   // +------+
