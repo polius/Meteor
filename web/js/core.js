@@ -273,12 +273,32 @@ function build_grid() {
     onCellEditingStopped: onCellEditingStopped,
     onViewportChanged: onViewportChanged,
     onDragStarted: onDragStarted,
-    onColumnMoved: onColumnMoved
+    onColumnMoved: onColumnMoved,
+    onCellMouseOver: onCellMouseOver,
+    onCellMouseOut: onCellMouseOut
   };
 
   gridOptions.getRowClass = function () {
     if (THEME == 'light') return 'light-row';
     else if (THEME == 'dark') return 'dark-row';
+  }
+}
+
+var rows_hovered = [];
+
+function onCellMouseOver() {
+  var components = document.getElementsByClassName('ag-row-hover');
+  for (var i = 0; i < components.length; ++i) {
+    if (THEME == 'light') components[i].classList.add('light-row-hover');
+    else if (THEME == 'dark') components[i].classList.add('dark-row-hover');
+    rows_hovered.push(components[i]);
+  }
+}
+
+function onCellMouseOut() {
+  while (rows_hovered.length > 0) {
+    if (THEME == 'light') rows_hovered.pop().classList.remove('light-row-hover');
+    else if (THEME == 'dark') rows_hovered.pop().classList.remove('dark-row-hover');
   }
 }
 
@@ -1558,8 +1578,6 @@ function apply_light_theme() {
   // AG-GRID - Pinned Columns
   add_style(document.querySelectorAll(".ag-theme-material .ag-ltr .ag-row.ag-cell-last-left-pinned, .ag-theme-material .ag-ltr .ag-cell:not(.ag-cell-focus).ag-cell-last-left-pinned"), 'borderRight', '1px solid #e2e2e2');
   add_style(document.querySelectorAll(".ag-theme-material .ag-pinned-left-header"), 'borderRight', '1px solid #e2e2e2');
-  // AG-GRID - Scrollbar
-  remove_style(document.querySelectorAll(".ag-horizontal-right-spacer,.ag-scroller-corner"), 'background-color');
 
   // Modals
   add_style(document.getElementsByClassName("modal-card-head"), 'backgroundColor', '#f5f5f5');
@@ -1587,7 +1605,7 @@ function apply_light_theme() {
 }
 
 function apply_light_theme_scrollbar() {
-  var components = document.querySelectorAll(".ag-body-viewport,.ag-body-horizontal-scroll-viewport");
+  var components = document.querySelectorAll(".ag-body-viewport,.ag-body-horizontal-scroll-viewport,.ag-horizontal-left-spacer");
   for (var i = 0; i < components.length; ++i) {
     components[i].classList.remove("dark_scrollbar");
     components[i].style.overflow = 'hidden';
@@ -1597,6 +1615,9 @@ function apply_light_theme_scrollbar() {
       components[i].style.overflow = 'auto';
     }
   }, 100);
+
+  var component = document.getElementsByClassName("ag-horizontal-left-spacer")
+  if (component.length > 0) component[0].style.borderRight = '1px solid #e2e2e2';
 }
 
 function apply_light_theme_select2() {
@@ -1666,8 +1687,6 @@ function apply_dark_theme() {
   // AG-GRID - Pinned Columns
   add_style(document.querySelectorAll(".ag-theme-material .ag-ltr .ag-row.ag-cell-last-left-pinned, .ag-theme-material .ag-ltr .ag-cell:not(.ag-cell-focus).ag-cell-last-left-pinned"), 'borderRight', '1px solid #4f4d56');
   add_style(document.querySelectorAll(".ag-theme-material .ag-pinned-left-header"), 'borderRight', '1px solid #4f4d56');
-  // AG-GRID - Scrollbar
-  add_style(document.querySelectorAll(".ag-horizontal-right-spacer,.ag-scroller-corner"), 'backgroundColor', '#4f4d56');
 
   // Modals
   add_style(document.getElementsByClassName("modal-card-head"), 'backgroundColor', '#303843');
@@ -1694,7 +1713,7 @@ function apply_dark_theme() {
 }
 
 function apply_dark_theme_scrollbar() {
-  var components = document.querySelectorAll(".ag-body-viewport,.ag-body-horizontal-scroll-viewport");
+  var components = document.querySelectorAll(".ag-body-viewport,.ag-body-horizontal-scroll-viewport,.ag-horizontal-left-spacer");
   for (var i = 0; i < components.length; ++i) {
     components[i].classList.add("dark_scrollbar");
     components[i].style.overflow = 'hidden';
@@ -1704,6 +1723,9 @@ function apply_dark_theme_scrollbar() {
       components[i].style.overflow = 'auto';
     }
   }, 100);
+
+  var component = document.getElementsByClassName("ag-horizontal-left-spacer")
+  if (component.length > 0) component[0].style.borderRight = '1px solid #4f4d56';
 }
 
 function apply_dark_theme_select2() {
