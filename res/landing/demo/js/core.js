@@ -211,7 +211,8 @@ function build_columns() {
             return execution_time;
           }
           else return params.data.meteor_execution_time;
-        }
+        },
+        comparator: compare_execution_time
       });
     }
     else if (COLUMNS[i] == 'meteor_output') {
@@ -1225,6 +1226,16 @@ function compare_values(value1, value2) {
     return parseFloat(value1) - parseFloat(value2);
   }
   else return value1.toString().localeCompare(value2.toString());
+}
+
+function compare_execution_time(value1, value2) {
+  // Check NULL & Empty Values
+  if ((value1 === null && value2 === null) || (value1 !== null && value2 !== null && value1.toString().trim() == '' && value2.toString().trim() == '')) return 0;
+  if ((value1 === null) || (value1.toString().trim() == '')) return -1;
+  if ((value2 === null) || (value2.toString().trim() == '')) return 1;
+
+  // Check NOT NULL Values
+  return parseFloat(value1.toString().substring(0, value1.toString().length - 1)) - parseFloat(value2.toString().substring(0, value2.toString().length - 1));
 }
 
 // ##############################################################################################

@@ -468,6 +468,17 @@ class query_template:
 
                         break
 
+                    elif t["type"] == "Table_Level.Alter.Convert":
+                        table_name = query_string.split(" ")[2]
+
+                        # Check Table
+                        exists = connection.check_table_exists(database_name, table_name)
+
+                        if exists is False:
+                            raise Exception("Table '{}.{}' doesn't exist".format(database_name, table_name))
+
+                        break
+
                     elif t["type"] == "Table_Level.Alter.View":
                         # Check View
                         view_name = query_string.split(" ")[2]

@@ -26,9 +26,9 @@ class mysql:
 
     def __connect(self, database=None):
         if database is not None:
-            self._connection = pymysql.connect(host=self._credentials['hostname'], user=self._credentials['username'], password=self._credentials['password'], db=database, charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+            self._connection = pymysql.connect(host=self._credentials['hostname'], user=self._credentials['username'], password=self._credentials['password'], db=database, charset='utf8mb4', use_unicode=False, cursorclass=pymysql.cursors.DictCursor, autocommit=False)
         else:
-            self._connection = pymysql.connect(host=self._credentials['hostname'], user=self._credentials['username'], password=self._credentials['password'], charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+            self._connection = pymysql.connect(host=self._credentials['hostname'], user=self._credentials['username'], password=self._credentials['password'], charset='utf8mb4', use_unicode=False, cursorclass=pymysql.cursors.DictCursor, autocommit=False)
 
     def execute(self, query, database_name=None):
         try:

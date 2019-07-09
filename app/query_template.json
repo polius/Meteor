@@ -31,6 +31,7 @@
     {"startswith": "RENAME TABLE ", "contains": " TO ", "type": "Table_Level.Alter.Rename"},
     {"startswith": "ALTER TABLE ", "contains": " ROW_FORMAT = DYNAMIC", "type": "Database_Level.Alter.RowTable.Dynamic"},
     {"startswith": "ALTER TABLE ", "contains": " AUTO_INCREMENT", "type": "Table_Level.Alter.AutoIncrement"},
+    {"startswith": "ALTER TABLE ", "contains": " CONVERT TO CHARACTER SET ", "type": "Table_Level.Alter.Convert"},
     {"startswith": "ALTER VIEW ", "contains": "", "type": "Table_Level.Alter.View"},
     {"startswith": "CREATE ", "contains": " TRIGGER ", "type": "Table_Level.Trigger.Add"},
     {"startswith": "DROP TRIGGER ", "contains": "", "type": "Table_Level.Trigger.Drop"},
