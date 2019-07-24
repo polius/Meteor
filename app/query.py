@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import re
+import sys
 from time import time
 from datetime import datetime
 from colors import colored
@@ -53,13 +54,11 @@ class query:
         self.__init_mysql()
 
     def __init_mysql(self):
-        self._sql = mysql(self._logger, self._args)
+        self._sql = mysql(self._logger, self._args, self._credentials)
         self._sql.connect(self._sql_connection.get('hostname'), self._sql_connection.get('username'), self._sql_connection.get('password'), self._sql_connection.get('database'))
 
     def __parse_query(self, query):
-        parsed_query = query.strip()
-        # .replace('\\n', '\\\\n').replace('\\t', '\\\\t')
-        return parsed_query
+        return query.strip()
 
     def get_query_type(self, query, show_output=True):
         parsed_query = self.__parse_query(query)
@@ -84,7 +83,7 @@ class query:
             database_parsed = '__GLOBAL__' if database is None else database
         else:
             aux_credentials = self._credentials['auxiliary_connections'][auxiliary['auxiliary_connection']]
-            conn = mysql(self._logger, self._args)
+            conn = mysql(self._logger, self._args, self._credentials)
             conn.connect(aux_credentials['hostname'], aux_credentials['username'], aux_credentials['password'])
             database_parsed = '__GLOBAL__' if auxiliary['database'] is None else auxiliary['database']
 
@@ -145,7 +144,6 @@ class query:
                 execution_row['meteor_response'] = ""
                 execution_row['meteor_execution_time'] = query_info['query_time']
                 self._execution_log['output'].append(execution_row)
-
                 if self._credentials['execution_mode']['parallel'] != 'True' and self._args.env_start_deploy:
                     print(colored("Query successfully executed", "green"))
 

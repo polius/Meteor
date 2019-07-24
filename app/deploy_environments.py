@@ -79,7 +79,7 @@ class deploy_environments:
                 self._logger.info(colored('--> ' + response, 'red'))
                 if shared_array is not None:
                     shared_array.append({"region": self._ENV_DATA['region'], "success": False, "response": response})
-            
+
             return status
 
         except Exception as e:
@@ -98,8 +98,8 @@ class deploy_environments:
             if self._credentials['execution_mode']['parallel'] != 'True':
                 raise
 
-    def check_version(self, output=True):
-        # Get SSH Version    
+    def check_version(self, output=True):    
+        # Get SSH Version
         ssh_version = self.__ssh("cat {}version.txt".format(self._DEPLOY_PATH))['stdout']
         if len(ssh_version) == 0:
             return False
@@ -156,47 +156,38 @@ class deploy_environments:
         self.__put(self._SCRIPT_PATH + '/credentials.json', logs_path + 'credentials.json')
         self.__put(self._SCRIPT_PATH + '/query_execution.py', logs_path + 'query_execution.py')
 
-    def start(self, shared_array=None):
+    def start(self, shared_array=None, progress_array=None):
         try:
             # Parallel Execution
             if self._credentials['execution_mode']['parallel'] == "True":
-                environment_type = '[LOCAL]' if self._ENV_DATA['ssh']['enabled'] == 'False' else '[SSH]  '
-                self._logger.info(colored('--> {0} Region \'{1}\' Started...'.format(environment_type, self._ENV_DATA['region']), 'yellow'))
                 # SSH Execution
                 if self._ENV_DATA['ssh']['enabled'] == 'True':
                     # Start the Execution
                     if self._args.env_start_deploy:
-                        stderr = self.__ssh('cd "{0}" && python meteor.py --environment "{1}" {2} --env_id "{3}" --env_start_deploy --execution_name "{4}" --uuid "{5}"'.format(self._DEPLOY_PATH, self._ENV_NAME, self._servers, self._ENV_DATA['region'], self._EXECUTION_NAME, self._UUID))['stderr']
+                        deploy = self.__ssh('cd "{0}" && python -u meteor.py --environment "{1}" {2} --env_id "{3}" --env_start_deploy --execution_name "{4}" --uuid "{5}"'.format(self._DEPLOY_PATH, self._ENV_NAME, self._servers, self._ENV_DATA['region'], self._EXECUTION_NAME, self._UUID), show_output=True, progress_array=progress_array)
                     else:
-                        stderr = self.__ssh('cd "{0}" && python meteor.py --environment "{1}" {2} --env_id "{3}" --execution_name "{4}" --uuid "{5}"'.format(self._DEPLOY_PATH, self._ENV_NAME, self._servers, self._ENV_DATA['region'], self._EXECUTION_NAME, self._UUID))['stderr']
+                        deploy = self.__ssh('cd "{0}" && python -u meteor.py --environment "{1}" {2} --env_id "{3}" --execution_name "{4}" --uuid "{5}"'.format(self._DEPLOY_PATH, self._ENV_NAME, self._servers, self._ENV_DATA['region'], self._EXECUTION_NAME, self._UUID), show_output=True, progress_array=progress_array)
                 # Local Execution
                 else:
                     if self._args.env_start_deploy:
-                        stderr = self.__local('python {0}/meteor.py --environment "{1}" {2} --env_id "{3}" --env_start_deploy --execution_name "{4}" --logs_path "{5}" --uuid "{6}"'.format(self._SCRIPT_PATH, self._ENV_NAME, self._servers, self._ENV_DATA['region'], self._EXECUTION_NAME, self._args.logs_path, self._UUID), show_output=False)['stderr']
+                        deploy = self.__local('python -u {0}/meteor.py --environment "{1}" {2} --env_id "{3}" --env_start_deploy --execution_name "{4}" --logs_path "{5}" --uuid "{6}"'.format(self._SCRIPT_PATH, self._ENV_NAME, self._servers, self._ENV_DATA['region'], self._EXECUTION_NAME, self._args.logs_path, self._UUID), show_output=True, progress_array=progress_array)
                     else:
-                        stderr = self.__local('python {0}/meteor.py --environment "{1}" {2} --env_id "{3}" --execution_name "{4}" --logs_path "{5}" --uuid "{6}"'.format(self._SCRIPT_PATH, self._ENV_NAME, self._servers, self._ENV_DATA['region'], self._EXECUTION_NAME, self._args.logs_path, self._UUID), show_output=False)['stderr']
+                        deploy = self.__local('python -u {0}/meteor.py --environment "{1}" {2} --env_id "{3}" --execution_name "{4}" --logs_path "{5}" --uuid "{6}"'.format(self._SCRIPT_PATH, self._ENV_NAME, self._servers, self._ENV_DATA['region'], self._EXECUTION_NAME, self._args.logs_path, self._UUID), show_output=True, progress_array=progress_array)
 
                 # Check for Execution Error
-                if len(stderr) > 0:
-                    response = '{0} Region \'{1}\' Finished with errors.'.format(environment_type, self._ENV_DATA['region'])
-                    self._logger.info(colored('--> ' + response, 'red'))
+                if len(deploy['stderr']) > 0:
                     # Parse stderr
-                    stderr_parsed = str(stderr).split("Traceback (most recent call last):\n")
+                    stderr_parsed = str(deploy['stderr']).split("Traceback (most recent call last):\n")
                     if len(stderr_parsed) > 1:
                         stderr_parsed = "Traceback (most recent call last):\n" + stderr_parsed[1]
-                        
-                        stderr_parsed = stderr_parsed[:stderr_parsed.rfind('\n')]
-                        if stderr_parsed[stderr_parsed.rfind('\n'):].startswith("\nProcess Process-"):
-                            stderr_parsed = stderr_parsed[:stderr_parsed.rfind('\n')]
-                        stderr_parsed += '\n'
+                        if stderr_parsed.splitlines()[-1].startswith('Process Process-'):
+                            stderr_parsed = stderr_parsed.rsplit("\n",2)[0]
                     else:
-                        stderr_parsed = stderr
+                        stderr_parsed = deploy['stderr']
 
-                    shared_array.append({"environment": self._ENV_DATA['region'], "success": False, "response": response, "error": stderr_parsed})
+                    shared_array.append({ "region": self._ENV_DATA['region'], "success": False, "error": stderr_parsed })
                 else:
-                    response = '{0} Region \'{1}\' Finished.'.format(environment_type, self._ENV_DATA['region'])
-                    self._logger.info(colored('--> ' + response, 'green'))
-                    shared_array.append({"environment": self._ENV_DATA['region'], "success": True, "response": response})
+                    shared_array.append({ "region": self._ENV_DATA['region'], "success": True })
 
             # Sequential Execution
             else:
@@ -390,30 +381,28 @@ class deploy_environments:
     ################
     # Core Methods #
     ################
-    def __local(self, command, show_output=False):
-        try:
-            if show_output:
-                p = subprocess.Popen(command, shell=True, stdout=sys.stdout, stderr=subprocess.PIPE)
-            else:
-                p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    def __local(self, command, show_output=False, progress_array=None):
+        # Paramiko Execute Local Command
+        client = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-            out, err = p.communicate()
-            return {"stdout": out, "stderr": err}
+        # Show Output 
+        if show_output:
+            for line in client.stdout:
+                if progress_array is None:
+                    print(line.rstrip())
+                else:
+                    progress_array.append(line)
 
-        except KeyboardInterrupt:
-            if show_output:
-                out, err = p.communicate()
-                if out is not None:
-                    print(out)
-            raise
+        # Return Execution Output
+        return { "stdout": client.stdout.readlines(), "stderr": ''.join(client.stderr.readlines()) }
 
-    def __ssh(self, command, show_output=False):
+    def __ssh(self, command, show_output=False, progress_array=None):
         try:
             # Supress Errors Output
             sys_stderr = sys.stderr
             sys.stderr = open('/dev/null', 'w')
 
-            # Init Paramiko Connection
+            # Init Paramiko SSH Connection
             client = paramiko.SSHClient()
             client.load_system_host_keys()
             client.set_missing_host_key_policy(paramiko.WarningPolicy())
@@ -425,13 +414,16 @@ class deploy_environments:
             # Paramiko Execute Command
             stdin, stdout, stderr = client.exec_command(command, get_pty=False)
             stdin.close()
-            if show_output:
-                for line in iter(lambda: stdout.readline(), ""):
-                    sys.stdout.write(line)
-                sys.stdout.flush()
 
-            # Return execution output
-            return {"stdout": stdout.readlines(), "stderr": ''.join(stderr.readlines())}
+            if show_output:
+                for line in stdout:
+                    if progress_array is None:
+                        print(line.rstrip())
+                    else:
+                        progress_array.append(line)
+
+            # Return Execution Output
+            return { "stdout": stdout.readlines(), "stderr": ''.join(stderr.readlines()) }
 
         finally:
             # Paramiko Close Connection

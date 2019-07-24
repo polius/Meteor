@@ -5,6 +5,7 @@ import re
 import imp
 import json
 import signal
+import time
 import multiprocessing
 from multiprocessing.managers import SyncManager
 from query import query
@@ -93,6 +94,18 @@ class deploy_queries:
                         p.start()
                         processes.append(p)
 
+                    # Track progress
+                    tracking = True
+                    while tracking:
+                        if all(not p.is_alive() for p in processes):
+                            tracking = False
+                        l = len(thread_shared_array)
+                        progress = float(len(databases)-l)/float(len(databases)) * 100
+                        print('{{"r":"{}","s":"{}","p":{:.2f},"d":{},"t":{}}}'.format(region, server['name'], progress, l, len(databases)))
+                        if l == 0:
+                            break
+                        time.sleep(1)
+
                     for process in processes:
                         process.join()
 
@@ -116,13 +129,12 @@ class deploy_queries:
             if self._credentials['execution_mode']['parallel'] == 'True':
                 error_format = re.sub(' +',' ', str(e)).replace('\n', '')
                 shared_array.append(error_format)
-            raise
+            raise       
 
     def __execute_main_databases(self, region, server, thread_shared_array):
         while len(thread_shared_array) > 0:
+            # Pick the next database to perform the execution
             try:
-                if thread_shared_array[0].startswith('[QUERY_ERROR]'):
-                    break
                 database = thread_shared_array.pop(0)
             except IndexError:
                 break
@@ -135,7 +147,7 @@ class deploy_queries:
                 # Supress CTRL+C events
                 signal.signal(signal.SIGINT,signal.SIG_IGN)
                 # Store Logs
-                self.__store_main_logs(server, database, thread_shared_array)
+                self.__store_main_logs(region, server, database)
                 # Enable CTRL+C events
                 signal.signal(signal.SIGINT, signal.default_int_handler)
                 # Raise Exception / KeyboardInterrupt
@@ -143,19 +155,22 @@ class deploy_queries:
 
             # Store Logs the execution to the Database
             try:
-                self.__store_main_logs(server, database, thread_shared_array)
+                self.__store_main_logs(region, server, database)
 
             except (KeyboardInterrupt, Exception):
                 # Supress CTRL+C events
                 signal.signal(signal.SIGINT,signal.SIG_IGN)
                 # Store Logs
-                self.__store_main_logs(server, database, thread_shared_array)
+                self.__store_main_logs(region, server, database)
                 # Enable CTRL+C events
                 signal.signal(signal.SIGINT, signal.default_int_handler)
                 # Raise Exception / KeyboardInterrupt
                 raise
 
-    def __store_main_logs(self, server, database, thread_shared_array):
+            # Prevent CPU bursting at 100%
+            time.sleep(0.001)
+
+    def __store_main_logs(self, region, server, database):
         # Store Logs
         execution_log_path = "{0}/logs/{1}/execution/{2}/{3}/{4}.json".format(self._script_path, self._execution_name, self._environment_data['region'], server['name'], database)
         if len(self._query.execution_log['output']) > 0:
@@ -165,7 +180,9 @@ class deploy_queries:
         # Check Errors
         for log in self._query.execution_log['output']:
             if (log['meteor_status'] == '0'):
-                thread_shared_array.append("[QUERY_ERROR] " + log['meteor_response'])
+                # Log Query Error in Parallel
+                if self._credentials['execution_mode']['parallel'] == 'True':
+                    print('{{"r":"{}","s":"{}","e":"{}"}}'.format(region, server['name'], log['meteor_response']))
                 break
 
         # Clear Log

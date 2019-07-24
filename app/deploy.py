@@ -147,36 +147,34 @@ class deploy:
             sys.exit(0)
 
     def __show_usage(self):
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("‖  USAGE                                                           ‖", "magenta", attrs=['bold']))
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("# python meteor.py --environment \"environment_name\" (--servers \"server1,server2,servern\") [ --validate [ credentials | queries | regions | all ] | --test | --deploy ]", attrs=['bold']))
-        self._logger.info(colored("\nModes:", 'yellow'))
-        self._logger.info(colored("--validate", attrs=['bold']) + ": Starts the Validation Process (Credentials, Queries, Environments).")
-        self._logger.info(colored("--test", attrs=['bold']) + ":     Performs the Test Execution without executing any queries.")
-        self._logger.info(colored("--deploy", attrs=['bold']) + ":   Performs the Deployment executing all queries.")
-        self._logger.info('')
-        self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
-        self._logger.info(colored("| SETUP                                                            |", 'magenta'))
-        self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
-        self._logger.info("Edit these two files:")
-        self._logger.info("- " + colored("credentials.json", attrs=['bold']) + ":   This file stores all the configuration to be used in the Test Execution / Deployment Process.")
-        self._logger.info("- " + colored("query_execution.py", attrs=['bold']) + ": This file stores all the logic and all the queries to be executed in the Test Execution / Deployment Process.")
-        self._logger.info("")
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("‖  USAGE                                                           ‖", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("# python meteor.py --environment \"environment_name\" (--servers \"server1,server2,servern\") [ --validate [ credentials | queries | regions | all ] | --test | --deploy ]", attrs=['bold']))
+        print(colored("\nModes:", 'yellow'))
+        print(colored("--validate", attrs=['bold']) + ": Starts the Validation Process (Credentials, Queries, Environments).")
+        print(colored("--test", attrs=['bold']) + ":     Performs the Test Execution without executing any queries.")
+        print(colored("--deploy", attrs=['bold']) + ":   Performs the Deployment executing all queries.")
+        print('')
+        print(colored("+------------------------------------------------------------------+", 'magenta'))
+        print(colored("| SETUP                                                            |", 'magenta'))
+        print(colored("+------------------------------------------------------------------+", 'magenta'))
+        print("Edit these two files:")
+        print("- " + colored("credentials.json", attrs=['bold']) + ":   This file stores all the configuration to be used in the Test Execution / Deployment Process.")
+        print("- " + colored("query_execution.py", attrs=['bold']) + ": This file stores all the logic and all the queries to be executed in the Test Execution / Deployment Process.")
+        print("")
     
     def __init_core(self):
         # Perform the Validation
-        # signal.signal(signal.SIGINT,signal.SIG_IGN)
         self.__validate()
-        # signal.signal(signal.SIGINT, signal.default_int_handler)
 
         # Perform the Deploy / Test Execution
         if self._args.deploy or self._args.test:
             try:
                 # Start the Countdown
-                self.__start_countdown(test=self._args.test)
+                self.__start_countdown()
                 # Start the Test Execution
-                self.__start(test=self._args.test)
+                self.__start()
                 # Post Test Execution Success
                 self.__post_execution(deploy=self._args.deploy, error=False)
             except (Exception, KeyboardInterrupt) as e:
@@ -188,7 +186,6 @@ class deploy:
         signal.signal(signal.SIGINT,signal.SIG_IGN)
 
         try:
-            e = error_msg
             log_name = 'deploy' if deploy else 'test'
             if not error:
                 # Get Logs
@@ -211,21 +208,21 @@ class deploy:
                 self.show_logs_location('[SUCCESS]_' + self._EXECUTION_NAME)
 
             else:
-                status_name = '[SUCCESS]_' if str(e).startswith('[QUERY_ERROR]') else '[FAILED]_'
-                if e.__class__ == Exception:
-                    if not str(e).startswith('[QUERY_ERROR]'):
+                status_name = '[SUCCESS]_' if error_msg is None else '[FAILED]_'
+                if error_msg.__class__ == Exception:
+                    if str(error_msg) != '':
                         print(colored("+==================================================================+", 'red', attrs=['bold']))
                         print(colored("‖  ERROR FOUND IN 'query_execution.py'                             ‖", 'red', attrs=['bold']))
                         print(colored("+==================================================================+", 'red', attrs=['bold']))
                         print(colored("Showing Error Traceback ...", attrs=['bold']))
-                        print(str(e).rstrip())
+                        print(str(error_msg).rstrip())
 
                 # Get Logs
                 logs = self.__get_logs()
                 # Analyze Logs
                 summary = self.__analyze_log(logs, log_name)
                 # Compile Logs
-                self._logs.compile(logs, summary, str(e).rstrip())
+                self._logs.compile(logs, summary, str(error_msg).rstrip())
                 # Compress Logs Folder
                 self._logs.compress(status_name + self._EXECUTION_NAME)
                 # Upload Logs to S3
@@ -233,12 +230,12 @@ class deploy:
                 # Clean Environments
                 self.clean()
                 # Slack Message
-                if e.__class__ == KeyboardInterrupt:
+                if error_msg.__class__ == KeyboardInterrupt:
                     self.slack(status=2, summary=summary, compressed_file_name = status_name + self._EXECUTION_NAME)
-                elif str(e).startswith('[QUERY_ERROR]'):
+                elif str(error_msg) == '':
                     self.slack(status=3, summary=summary, compressed_file_name = status_name + self._EXECUTION_NAME)
                 else:
-                    message = str(e).rstrip()
+                    message = str(error_msg).rstrip()
                     self.slack(status=4, summary=summary, compressed_file_name = status_name + self._EXECUTION_NAME, error_msg=message)
                 # Show Execution Time
                 self.show_execution_time()
@@ -246,7 +243,7 @@ class deploy:
                 self.show_logs_location(status_name + self._EXECUTION_NAME)
 
         except Exception as e:
-            self._logger.info(str(e))
+            print(str(e))
             # Clean Environments
             self.clean()
             # Slack Message
@@ -259,9 +256,9 @@ class deploy:
 
     def __validate(self):
         ## VALIDATION
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("‖  VALIDATION                                                      ‖", "magenta", attrs=['bold']))
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("‖  VALIDATION                                                      ‖", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
 
         try:
             validate_regions = False 
@@ -320,9 +317,9 @@ class deploy:
             raise Exception("[USER] The --validate argument requires [ credentials | queries | regions | all ]")
 
     def __validate_credentials(self):
-        self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
-        self._logger.info(colored("| Validating Credentials                                           |", 'magenta'))
-        self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+        print(colored("+------------------------------------------------------------------+", 'magenta'))
+        print(colored("| Validating Credentials                                           |", 'magenta'))
+        print(colored("+------------------------------------------------------------------+", 'magenta'))
         try:
             # Check --environment exists
             if self._args.environment not in self._environments:
@@ -392,7 +389,7 @@ class deploy:
                         if s not in servers_list:
                             raise Exception("[Environment: {0}] The Server '{1}' specified with --servers flag does not exist in the environment.".format(environment, s))
 
-            self._logger.info(colored("- Credentials Validation Passed!", "green", attrs=['bold', 'reverse']))
+            print(colored("- Credentials Validation Passed!", "green", attrs=['bold', 'reverse']))
 
         except Exception as e:
             self._logger.critical(colored(e, 'red', attrs=['reverse', 'bold']))
@@ -400,9 +397,9 @@ class deploy:
 
     def __validate_queries(self):
         try:
-            self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
-            self._logger.info(colored("| Validating Queries                                               |", 'magenta'))
-            self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+            print(colored("+------------------------------------------------------------------+", 'magenta'))
+            print(colored("| Validating Queries                                               |", 'magenta'))
+            print(colored("+------------------------------------------------------------------+", 'magenta'))
 
             validation = query(self._logger, self._args, self._credentials, self._query_template, self._EXECUTION_NAME)
             queries_validated = True
@@ -413,27 +410,27 @@ class deploy:
                 query_parsed = re.sub(' +',' ', query_parsed).strip()
                 query_type = validation.get_query_type(q)
                 if query_type == False:
-                    self._logger.info(colored('[NOT DETECTED] ', 'red') + query_parsed)
+                    print(colored('[NOT DETECTED] ', 'red') + query_parsed)
                     queries_validated &= 0
                 else:
-                    self._logger.info(colored('[{}] '.format(query_type.upper()), 'green') + query_parsed)
+                    print(colored('[{}] '.format(query_type.upper()), 'green') + query_parsed)
                     queries_validated &= 1
 
             # Validating Auxiliary Queries
             for q in self._query_execution.auxiliary_queries.values():
                 query_type = validation.get_query_type(q['query'])
                 if query_type == False:
-                    self._logger.info(colored('[NOT DETECTED] ', 'red') + colored(q['query']))
+                    print(colored('[NOT DETECTED] ', 'red') + colored(q['query']))
                     queries_validated &= 0
                 else:
-                    self._logger.info(colored('[{}] '.format(query_type.upper()), 'green') + colored(q['query']))
+                    print(colored('[{}] '.format(query_type.upper()), 'green') + colored(q['query']))
                     queries_validated &= 1
 
             # Determine if the queries are validated
             if not queries_validated:
                 raise Exception(colored("- Validation Not Passed. Please review the above queries in the 'query_execution.py' file.", "red"))
             else:
-                self._logger.info(colored("- Queries Validation Passed!", 'green', attrs=['bold', 'reverse']))
+                print(colored("- Queries Validation Passed!", 'green', attrs=['bold', 'reverse']))
 
         except Exception as e:
             self._logger.critical(colored(e, 'red', attrs=['reverse', 'bold']))
@@ -441,9 +438,9 @@ class deploy:
 
     def __validate_regions(self):
         try:
-            self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
-            self._logger.info(colored("| Validating Regions                                               |", 'magenta'))
-            self._logger.info(colored("+------------------------------------------------------------------+", 'magenta'))
+            print(colored("+------------------------------------------------------------------+", 'magenta'))
+            print(colored("| Validating Regions                                               |", 'magenta'))
+            print(colored("+------------------------------------------------------------------+", 'magenta'))
 
             # Generate App Version
             deploy_env = deploy_environments(self._logger, self._args, self._credentials)
@@ -493,7 +490,7 @@ class deploy:
                             process.join()
                         raise
 
-            self._logger.info(colored("- Regions Validation Passed!", 'green', attrs=['bold', 'reverse']))
+            print(colored("- Regions Validation Passed!", 'green', attrs=['bold', 'reverse']))
 
         except Exception as e:
             if len(str(e)) > 0:
@@ -513,34 +510,46 @@ class deploy:
         for sql in environment['sql']:
             if sql['name'] == self._args.env_check_sql:
                 try:
-                    mysql_conn = mysql(self._logger, self._args)
+                    mysql_conn = mysql(self._logger, self._args, self._credentials)
                     mysql_conn.connect(sql['hostname'], sql['username'], sql['password'])
                 except Exception as e:
                     print(str(e))
                 break
     
-    def __start_countdown(self, test):
+    def __start_countdown(self):
         try:
             # Countdown
             countdown_seconds = 1
-            countdown_msg = '--> Starting Test Execution in:' if test else '--> Starting Deployment in:'
+            countdown_msg = '--> Starting Test Execution in:' if self._args.test else '--> Starting Deployment in:'
             countdown_color = '\033[0;31m'
             self.__countdown(countdown_seconds, countdown_msg, countdown_color)
         except KeyboardInterrupt:
             print("")
             raise
 
-    def __start(self, environment_data=None, test=False):
+    def __show_execution_header(self, started_datetime, started_time):
+        # Show Header
+        self.__cls()
+        title = "‖  TEST EXECUTION                                                  ‖" if self._args.test else "‖  DEPLOYMENT                                                      ‖"
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored(title, "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        # Show Execution Status
+        if self._credentials['execution_mode']['parallel'] == 'True':
+            elapsed = str(timedelta(seconds=time.time() - started_time))
+            print(colored("> Started: ", 'magenta') + colored(started_datetime, attrs=['bold']) + colored(" > Elapsed: ", 'magenta') + colored(elapsed, attrs=['bold']))
+
+    def __start(self, environment_data=None):
         try:
+            # Get Deployment Start Datetime
+            started_datetime = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+            started_time = time.time()
+
             # Show Header
-            self.__cls()
-            header_string = "‖  TEST EXECUTION                                                  ‖" if test else "‖  DEPLOYMENT                                                      ‖"
-            self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-            self._logger.info(colored(header_string, "magenta", attrs=['bold']))
-            self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+            self.__show_execution_header(started_datetime, started_time)
 
             # Set Args Variable to Define DryRun/Deploy
-            self._args.env_start_deploy = False if test else True
+            self._args.env_start_deploy = False if self._args.test else True
 
             # Start Environment Deploy in Sequential
             if self._credentials['execution_mode']['parallel'] != 'True':
@@ -558,34 +567,72 @@ class deploy:
                 manager = SyncManager()
                 manager.start(self.__mgr_init)
                 shared_array = manager.list()
-
+                progress_array = manager.list()
                 processes = []
+                execution_status = 1  # 0: QUERY_ERROR | 1: SUCCESS
+                
+                # Init Progress
+                progress = {}
+                for env_data in self._ENV_DATA[self._ENV_NAME]:
+                    progress[env_data['region']] = {}
+
+                # Start Deployment
                 try:
                     for env_data in self._ENV_DATA[self._ENV_NAME]:
-                        environment_type = '[LOCAL]' if env_data['ssh']['enabled'] == 'False' else '[SSH]'
-
                         env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data, self._UUID)
-                        p = multiprocessing.Process(target=env.start, args=(shared_array,))
+                        p = multiprocessing.Process(target=env.start, args=(shared_array, progress_array,))
                         p.start()
                         processes.append(p)
 
+                    # Track Progress
+                    tracking = True
+                    while tracking:
+                        # Check if all processes have finished
+                        if all(not p.is_alive() for p in processes):
+                            tracking = False
+
+                        # Check if there are execution errors (e.g. query_execution.py)
+                        for data in shared_array:
+                            if data['success'] is False:
+                                print(colored("- {}Execution Failed.".format('Test ' if self._args.test else ''), 'red', attrs=['bold', 'reverse']))                        
+                                raise Exception(data['error'])
+
+                        # Calculate Progress
+                        for r in range(len(progress_array)):
+                            raw_item = progress_array.pop(0).split('}')
+                            for i in raw_item:
+                                if len(i) > 1:  # Ignore: [u''] & [u'\n']
+                                    item = json.loads(''.join(i + '}').encode('utf-8'))
+                                    if 'e' in item:
+                                        execution_status = 0
+                                    else:
+                                        progress[item['r']][item['s']] = { "p": item['p'], "d": item['d'], "t": item['t'] }
+
+                        # Print Progress
+                        self.__show_execution_header(started_datetime, started_time)
+                        for r in self._ENV_DATA[self._ENV_NAME]:
+                            environment_type = '[LOCAL]' if r['ssh']['enabled'] == 'False' else '[SSH]  '
+                            region_total_databases = sum([int(rp['t']) for rp in progress[r['region']].values()])
+                            region_databases = sum([int(rp['d']) for rp in progress[r['region']].values()])
+
+                            if (region_total_databases != 0):
+                                databases_progress = region_total_databases - region_databases
+                                overall_progress =  float(databases_progress) / float(region_total_databases) * 100
+                                color = 'green' if region_databases == 0 else 'yellow'
+                                print(colored("--> {} Region '{}': {:.2f}% ({}/{} DBs)".format(environment_type, r['region'], overall_progress, databases_progress, region_total_databases), color))
+
+                        time.sleep(1)
+
+                    # Ensure all processes have finished before proceeding forward
                     for process in processes:
                         process.join()
-                    
-                    # Get Overall Environment Deploy Status
-                    for data in shared_array:
-                        if data['success'] is False:
-                            if data['error'].startswith("[QUERY_ERROR]") or self._args.test:
-                                self._logger.critical(colored("- {}Execution Finished with errors.".format('Test ' if self._args.test else ''), 'red', attrs=['bold', 'reverse']))
-                            else:
-                                self._logger.critical(colored("- {}Execution Failed!".format('Test ' if self._args.test else ''), 'red', attrs=['bold', 'reverse']))
-                            # Raise Exception
-                            raise Exception(data['error'])
 
-                    if self._args.deploy:
-                        self._logger.info(colored("- Execution Finished Successfully!", "green", attrs=['bold', 'reverse']))
-                    elif self._args.test:
-                        self._logger.info(colored("- Test Execution Finished Successfully!", "green", attrs=['bold', 'reverse']))
+                    # Print Execution Status after all executions
+                    if execution_status == 0:
+                        print(colored("- {}Execution Finished. Some queries failed.".format('Test ' if self._args.test else ''), 'yellow', attrs=['bold', 'reverse']))                        
+                        raise Exception('')
+                    elif execution_status == 1:
+                        print(colored("- {}Execution Finished Successfully.".format('Test ' if self._args.test else ''), "green", attrs=['bold', 'reverse']))
 
                 except KeyboardInterrupt:
                     # Supress CTRL+C events
@@ -615,7 +662,7 @@ class deploy:
                     # Raise KeyboardInterrupt
                     raise
         finally:
-            self._EXECUTION_TIME = time.time()
+            self._EXECUTION_TIME = time.time()        
 
     #handle SIGINT from SyncManager object
     def mgr_sig_handler(self, signal, frame):
@@ -658,6 +705,7 @@ class deploy:
             manager = SyncManager()
             manager.start(self.__mgr_init)
             shared_array = manager.list()
+            alive = True
 
             processes = []
             try:
@@ -695,16 +743,16 @@ class deploy:
         deploy.execute_after(env['region'])        
 
     def __analyze_log(self, data, log_name):
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("‖  SUMMARY                                                         ‖", "magenta", attrs=['bold']))
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("‖  SUMMARY                                                         ‖", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
         
         # Init summary
         summary = {}
         summary['total_queries'] = len(data)
 
         # Total Queries
-        self._logger.info(colored("- Total Queries: ", attrs=['bold']) + colored(summary['total_queries'], 'yellow'))
+        print(colored("- Total Queries: ", attrs=['bold']) + colored(summary['total_queries'], 'yellow'))
 
         # Analyze Test Execution Logs 
         if self._args.test:
@@ -716,12 +764,12 @@ class deploy:
 
             # Queries Passed the Test Run
             execution_checks_success_value = 0 if summary['total_queries'] == 0 else round(float(summary['total_queries'] - summary['queries_failed']) / float(summary['total_queries']) * 100, 2)        
-            self._logger.info(colored("- Queries Succeeded: ", attrs=['bold']) + colored(summary['total_queries'] - summary['queries_failed'], 'green') + colored(" (~{}%)".format(float(execution_checks_success_value))))
+            print(colored("- Queries Succeeded: ", attrs=['bold']) + colored(summary['total_queries'] - summary['queries_failed'], 'green') + colored(" (~{}%)".format(float(execution_checks_success_value))))
 
             # Queries Failed the Test Run
             execution_checks_failed_color = 'green' if summary['queries_failed'] == 0 else 'red'
             execution_checks_failed_value = 0 if summary['total_queries'] == 0 else round(float(summary['queries_failed']) / float(summary['total_queries']) * 100, 2)        
-            self._logger.info(colored("- Queries Failed: ", attrs=['bold']) + colored(summary['queries_failed'], execution_checks_failed_color) + colored(" (~{}%)".format(float(execution_checks_failed_value))))
+            print(colored("- Queries Failed: ", attrs=['bold']) + colored(summary['queries_failed'], execution_checks_failed_color) + colored(" (~{}%)".format(float(execution_checks_failed_value))))
 
         # Analyze Deployment Logs 
         elif self._args.deploy:
@@ -733,22 +781,22 @@ class deploy:
 
             # Queries Succeeded
             queries_succeeded_value = 0 if summary['total_queries'] == 0 else round(float(int(summary['total_queries']) - int(summary['meteor_query_error'])) / float(summary['total_queries']) * 100, 2)
-            self._logger.info(colored("- Queries Succeeded: ", attrs=['bold']) + colored(int(summary['total_queries']) - int(summary['meteor_query_error']), 'green') + colored(" (~{}%)".format(float(queries_succeeded_value))))
+            print(colored("- Queries Succeeded: ", attrs=['bold']) + colored(int(summary['total_queries']) - int(summary['meteor_query_error']), 'green') + colored(" (~{}%)".format(float(queries_succeeded_value))))
 
             # Queries Failed
             queries_failed_value = 0 if summary['total_queries'] == 0 else round(float(summary['meteor_query_error']) / float(summary['total_queries']) * 100, 2)
             queries_failed_color = 'green' if summary['meteor_query_error'] == 0 else 'red'
-            self._logger.info(colored("- Queries Failed: ", attrs=['bold']) + colored(summary['meteor_query_error'], queries_failed_color) + colored(" (~{}%)".format(float(queries_failed_value))))
+            print(colored("- Queries Failed: ", attrs=['bold']) + colored(summary['meteor_query_error'], queries_failed_color) + colored(" (~{}%)".format(float(queries_failed_value))))
 
         return summary
 
     def __get_logs(self):
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("‖  LOGS                                                            ‖", "magenta", attrs=['bold']))
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("‖  LOGS                                                            ‖", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
 
         # 1. Compress Execution Logs
-        self._logger.info('- Compressing Logs From Remote Hosts...')
+        print('- Compressing Logs From Remote Hosts...')
 
         ## Parallel Mode
         if self._credentials['execution_mode']['parallel'] == 'True':
@@ -784,7 +832,7 @@ class deploy:
                     env.compress_logs()
 
         # 2. Get SSH Execution Logs
-        self._logger.info("- Downloading Logs From Remote Hosts...")
+        print("- Downloading Logs From Remote Hosts...")
 
         ## Parallel Mode
         if self._credentials['execution_mode']['parallel'] == 'True':
@@ -877,14 +925,14 @@ class deploy:
             raise Exception(colored("--> Error Merging Logs:\n{}".format(execution_log_merge['error']), 'red'))
 
     def clean(self, remote=True):
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("‖  CLEAN UP                                                        ‖", "magenta", attrs=['bold']))
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("‖  CLEAN UP                                                        ‖", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
 
         # Clean Remote Environments
         if remote:
             try:
-                self._logger.info("- Cleaning Remote Environments...")
+                print("- Cleaning Remote Environments...")
 
                 if self._ENV_DATA != {}:
                     if self._credentials['execution_mode']['parallel'] == "True":
@@ -903,7 +951,7 @@ class deploy:
 
         # Clean Local Environment
         try:
-            self._logger.info("- Cleaning Local Environment...")
+            print("- Cleaning Local Environment...")
             env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME)
             env.clean_local()
 
@@ -912,7 +960,7 @@ class deploy:
 
         # Send SIGKILL to clear remaining Zombie Processes
         if self._credentials['execution_mode']['parallel'] == 'True' and not self._args.validate:
-            self._logger.info("- Cleaning Remaining Processes...")
+            print("- Cleaning Remaining Processes...")
             for env_data in self._ENV_DATA[self._ENV_NAME]:
                 env = deploy_environments(self._logger, self._args, self._credentials, self._EXECUTION_NAME, self._ENV_NAME, env_data, self._UUID)
                 env.sigkill()
@@ -956,10 +1004,10 @@ class deploy:
         if self._credentials['slack']['enabled'] != "True":
             return
 
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("‖  SLACK                                                           ‖", "magenta", attrs=['bold']))
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info("- Sending Slack Message to #meteor ...")
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("‖  SLACK                                                           ‖", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print("- Sending Slack Message to #meteor ...")
 
         # Get Webhook Data
         webhook_url = self._credentials['slack']['webhook']
@@ -1099,47 +1147,47 @@ class deploy:
         else:
             response = "- Slack Webhook Response: {0} [{1}]".format(str(response.text).upper(), str(response.status_code))
         
-        self._logger.info(response)
+        print(response)
 
     def show_execution_time(self, only_validate=False):
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("‖  EXECUTION TIME                                                  ‖", "magenta", attrs=['bold']))
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("‖  EXECUTION TIME                                                  ‖", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
 
         if not only_validate:
             if self._EXECUTION_TIME is not None:
                 # Validation
                 validation_time = str(timedelta(seconds=self._VALIDATION_TIME - self._START_TIME))
-                self._logger.info(colored("- Validation Time: {}".format(validation_time)))
+                print(colored("- Validation Time: {}".format(validation_time)))
 
                 # Deployment / Test Execution
                 deploy_time = str(timedelta(seconds=self._EXECUTION_TIME - self._VALIDATION_TIME))
                 if self._args.deploy:
-                    self._logger.info(colored("- Deployment Time: {}".format(deploy_time)))
+                    print(colored("- Deployment Time: {}".format(deploy_time)))
                 elif self._args.test:
-                    self._logger.info(colored("- Test Execution Time: {}".format(deploy_time)))
+                    print(colored("- Test Execution Time: {}".format(deploy_time)))
 
                 # Post Deployment / Test Execution
                 post_time = str(timedelta(seconds=time.time() - self._EXECUTION_TIME))
                 if self._args.deploy:
-                    self._logger.info(colored("- Post Deployment Time: {}".format(post_time)))
+                    print(colored("- Post Deployment Time: {}".format(post_time)))
                 elif self._args.test:
-                    self._logger.info(colored("- Post Test Execution Time: {}".format(post_time)))
+                    print(colored("- Post Test Execution Time: {}".format(post_time)))
 
         # Overall
         overall_time = str(timedelta(seconds=time.time() - self._START_TIME))
-        self._logger.info(colored("- Overall Time: {}".format(overall_time), attrs=['bold']))
+        print(colored("- Overall Time: {}".format(overall_time), attrs=['bold']))
 
     def show_logs_location(self, compressed_file_name):
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
-        self._logger.info(colored("‖  OUTPUT                                                          ‖", "magenta", attrs=['bold']))
-        self._logger.info(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
+        print(colored("‖  OUTPUT                                                          ‖", "magenta", attrs=['bold']))
+        print(colored("+==================================================================+", "magenta", attrs=['bold']))
         # Show Logs Path
         logs_path = "{}/logs/{}.tar.gz".format(self._SCRIPT_PATH, compressed_file_name)
-        self._logger.info("- Logs Path: " + colored(logs_path, 'green'))
+        print("- Logs Path: " + colored(logs_path, 'green'))
 
         if self._credentials['web']['public_url'] != '':
             # Show Logs Url
             public_url = self._credentials['web']['public_url'] + '/' if not self._credentials['web']['public_url'].endswith('/') else self._credentials['web']['public_url']
             logs_url = "{}?uri={}".format(public_url, self._UUID)
-            self._logger.info("- Logs Url: " + colored(logs_url, 'yellow'))
+            print("- Logs Url: " + colored(logs_url, 'yellow'))

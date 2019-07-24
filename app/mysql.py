@@ -11,24 +11,25 @@ class OrderedDictCursor(DictCursorMixin, Cursor):
     dict_type = OrderedDict
 
 class mysql:
-    def __init__(self, logger, args):
+    def __init__(self, logger, args, credentials):
         self._logger = logger
         self._args = args
+        self._credentials = credentials
         self._connection = None
-        self._credentials = {}
+        self._mysql = {}
 
     def connect(self, hostname, username, password, database=None):
         # Store the Credentials
-        self._credentials = {"hostname": hostname, "username": username, "password": password, "database": database}
+        self._mysql = {"hostname": hostname, "username": username, "password": password, "database": database}
 
         # Init Connection
         self.__connect(database)
 
     def __connect(self, database=None):
         if database is not None:
-            self._connection = pymysql.connect(host=self._credentials['hostname'], user=self._credentials['username'], password=self._credentials['password'], db=database, charset='utf8mb4', use_unicode=False, cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+            self._connection = pymysql.connect(host=self._mysql['hostname'], user=self._mysql['username'], password=self._mysql['password'], db=database, charset='utf8mb4', use_unicode=False, cursorclass=pymysql.cursors.DictCursor, autocommit=False)
         else:
-            self._connection = pymysql.connect(host=self._credentials['hostname'], user=self._credentials['username'], password=self._credentials['password'], charset='utf8mb4', use_unicode=False, cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+            self._connection = pymysql.connect(host=self._mysql['hostname'], user=self._mysql['username'], password=self._mysql['password'], charset='utf8mb4', use_unicode=False, cursorclass=pymysql.cursors.DictCursor, autocommit=False)
 
     def execute(self, query, database_name=None):
         try:
@@ -59,23 +60,31 @@ class mysql:
 
         except Exception as e:
             if self._args.env_start_deploy:
+                show_output = self._credentials['execution_mode']['parallel'] == "False"
                 try:
-                    print(colored("Error: ", 'red', attrs=['bold']) + colored(colored(e, 'red')))
-                    print(colored("--> Rollback Initiated...", 'yellow'))
+                    if show_output:
+                        print(colored("Error: ", 'red', attrs=['bold']) + colored(colored(e, 'red')))
+                        print(colored("--> Rollback Initiated...", 'yellow'))
                     self._connection.rollback()
-                    print(colored("--> Rollback successfully performed.", 'green'))
+                    if show_output:
+                        print(colored("--> Rollback successfully performed.", 'green'))
                 except Exception as e2:
-                    print(colored("--> Rollback not performed. Error: {}".format(e2), 'red'))
+                    if show_output:
+                        print(colored("--> Rollback not performed. Error: {}".format(e2), 'red'))
             raise e
 
         except KeyboardInterrupt:
             if self._args.env_start_deploy:
+                show_output = self._credentials['execution_mode']['parallel'] == "False"
                 try:
-                    print(colored("\n--> Rollback Initiated...", 'yellow'))
+                    if show_output:
+                        print(colored("\n--> Rollback Initiated...", 'yellow'))
                     self._connection.rollback()
-                    print(colored("--> Rollback successfully performed.", 'green'))
+                    if show_output:
+                        print(colored("--> Rollback successfully performed.", 'green'))
                 except Exception as e:
-                    print(colored("--> Rollback not performed. Error: {}".format(e), 'red'))
+                    if show_output:
+                        print(colored("--> Rollback not performed. Error: {}".format(e), 'red'))
             raise KeyboardInterrupt("Program Interrupted by User. Rollback successfully performed.")
 
         finally:
