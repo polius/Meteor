@@ -616,10 +616,9 @@ class deploy:
                             region_databases = sum([int(rp['d']) for rp in progress[r['region']].values()])
 
                             if (region_total_databases != 0):
-                                databases_progress = region_total_databases - region_databases
-                                overall_progress =  float(databases_progress) / float(region_total_databases) * 100
-                                color = 'green' if region_databases == 0 else 'yellow'
-                                print(colored("--> {} Region '{}': {:.2f}% ({}/{} DBs)".format(environment_type, r['region'], overall_progress, databases_progress, region_total_databases), color))
+                                overall_progress =  float(region_databases) / float(region_total_databases) * 100
+                                color = 'green' if region_databases == region_total_databases else 'yellow'
+                                print(colored("--> {} Region '{}': {:.2f}% ({}/{} DBs)".format(environment_type, r['region'], overall_progress, region_databases, region_total_databases), color))
 
                         time.sleep(1)
 

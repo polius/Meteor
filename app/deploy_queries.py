@@ -86,11 +86,12 @@ class deploy_queries:
                 manager.start(self.__mgr_init)
                 thread_shared_array = manager.list()
                 thread_shared_array.extend(databases)
+                progress_array = manager.list()
                 processes = []
 
                 try:
                     for i in range(int(self._credentials['execution_mode']['threads'])):
-                        p = multiprocessing.Process(target=self.__execute_main_databases, args=(region, server, thread_shared_array))
+                        p = multiprocessing.Process(target=self.__execute_main_databases, args=(region, server, thread_shared_array, progress_array))
                         p.start()
                         processes.append(p)
 
@@ -99,10 +100,10 @@ class deploy_queries:
                     while tracking:
                         if all(not p.is_alive() for p in processes):
                             tracking = False
-                        l = len(thread_shared_array)
-                        progress = float(len(databases)-l)/float(len(databases)) * 100
-                        print('{{"r":"{}","s":"{}","p":{:.2f},"d":{},"t":{}}}'.format(region, server['name'], progress, l, len(databases)))
-                        if l == 0:
+                        d = len(progress_array)
+                        progress = float(d)/float(len(databases)) * 100
+                        print('{{"r":"{}","s":"{}","p":{:.2f},"d":{},"t":{}}}'.format(region, server['name'], progress, d, len(databases)))
+                        if d == len(databases):
                             break
                         time.sleep(1)
 
@@ -131,7 +132,7 @@ class deploy_queries:
                 shared_array.append(error_format)
             raise       
 
-    def __execute_main_databases(self, region, server, thread_shared_array):
+    def __execute_main_databases(self, region, server, thread_shared_array, progress_array=None):
         while len(thread_shared_array) > 0:
             # Pick the next database to perform the execution
             try:
@@ -166,6 +167,10 @@ class deploy_queries:
                 signal.signal(signal.SIGINT, signal.default_int_handler)
                 # Raise Exception / KeyboardInterrupt
                 raise
+
+            # Add database to the progressed list
+            if progress_array is not None:
+                progress_array.append(database)
 
             # Prevent CPU bursting at 100%
             time.sleep(0.001)
