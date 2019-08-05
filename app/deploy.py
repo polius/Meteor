@@ -570,11 +570,6 @@ class deploy:
                 progress_array = manager.list()
                 processes = []
                 execution_status = 1  # 0: QUERY_ERROR | 1: SUCCESS
-                
-                # Init Progress
-                progress = {}
-                for env_data in self._ENV_DATA[self._ENV_NAME]:
-                    progress[env_data['region']] = {}
 
                 # Start Deployment
                 try:
@@ -584,6 +579,11 @@ class deploy:
                         p.start()
                         processes.append(p)
 
+                    # Init Progress
+                    progress = {}
+                    for env_data in self._ENV_DATA[self._ENV_NAME]:
+                        progress[env_data['region']] = {}
+                        
                     # Track Progress
                     tracking = True
                     while tracking:
@@ -605,8 +605,17 @@ class deploy:
                                     item = json.loads(''.join(i + '}').encode('utf-8'))
                                     if 'e' in item:
                                         execution_status = 0
+                                        if item['s'] not in progress[item['r']]:
+                                            progress[item['r']][item['s']] = { "e": item['e'] }
+                                        else:
+                                            progress[item['r']][item['s']]['e'] = item['e']
                                     else:
-                                        progress[item['r']][item['s']] = { "p": item['p'], "d": item['d'], "t": item['t'] }
+                                        if item['s'] not in progress[item['r']] or 'e' not in progress[item['r']][item['s']]:
+                                            progress[item['r']][item['s']] = { "p": item['p'], "d": item['d'], "t": item['t'] }
+                                        else:
+                                            progress[item['r']][item['s']]['p'] = item['p']
+                                            progress[item['r']][item['s']]['d'] = item['d']
+                                            progress[item['r']][item['s']]['t'] = item['t']
 
                         # Print Progress
                         self.__show_execution_header(started_datetime, started_time)
@@ -615,10 +624,9 @@ class deploy:
                             region_total_databases = sum([int(rp['t']) for rp in progress[r['region']].values()])
                             region_databases = sum([int(rp['d']) for rp in progress[r['region']].values()])
 
-                            if (region_total_databases != 0):
-                                overall_progress =  float(region_databases) / float(region_total_databases) * 100
-                                color = 'green' if region_databases == region_total_databases else 'yellow'
-                                print(colored("--> {} Region '{}': {:.2f}% ({}/{} DBs)".format(environment_type, r['region'], overall_progress, region_databases, region_total_databases), color))
+                            overall_progress = 0 if region_total_databases == 0 else float(region_databases) / float(region_total_databases) * 100
+                            color = 'green' if overall_progress == 100 else 'yellow'
+                            print(colored("--> {} Region '{}': {:.2f}% ({}/{} DBs)".format(environment_type, r['region'], overall_progress, region_databases, region_total_databases), color))
 
                         time.sleep(1)
 

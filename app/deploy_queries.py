@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import re
+import sys
 import imp
 import json
 import signal
@@ -133,6 +134,9 @@ class deploy_queries:
             raise       
 
     def __execute_main_databases(self, region, server, thread_shared_array, progress_array=None):
+        stdout = sys.stdout
+        supress = open('/dev/null', 'w') if progress_array is not None else sys.stdout
+
         while len(thread_shared_array) > 0:
             # Pick the next database to perform the execution
             try:
@@ -142,11 +146,14 @@ class deploy_queries:
 
             # Perform the execution to the Database
             try:
+                sys.stdout = supress
                 self._query_execution.main(self._args.environment, region, server['name'], database)
+                sys.stdout = stdout
 
             except (KeyboardInterrupt, Exception):
                 # Supress CTRL+C events
                 signal.signal(signal.SIGINT,signal.SIG_IGN)
+                sys.stdout = stdout
                 # Store Logs
                 self.__store_main_logs(region, server, database)
                 # Enable CTRL+C events

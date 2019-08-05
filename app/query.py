@@ -126,11 +126,11 @@ class query:
 
             except Exception as e:
                 if self._credentials['execution_mode']['parallel'] != 'True':
-                    print(colored('Test Failed: ', 'red', attrs=['bold']) + colored(str(e), 'red'))
+                    print(colored('Test Failed: ', 'red', attrs=['bold']) + colored(self.__parse_error(str(e)), 'red'))
 
                 # Write Exception to the Log
                 execution_row['meteor_status'] = '0'
-                execution_row['meteor_response'] = str(e)
+                execution_row['meteor_response'] = self.__parse_error(str(e))
                 self._execution_log['output'].append(execution_row)
                 return
         
@@ -153,8 +153,11 @@ class query:
             except (KeyboardInterrupt, Exception) as e:
                 # Write Exception to the Log
                 execution_row['meteor_status'] = '0'
-                execution_row['meteor_response'] = str(e)
+                execution_row['meteor_response'] = self.__parse_error(str(e))
                 self._execution_log['output'].append(execution_row)
                 # Do not Raise the Exception. Continue with the Deployment
                 if e.__class__ == KeyboardInterrupt:
                     raise
+
+    def __parse_error(self, error):
+        return re.sub('\s+', ' ', error.replace('\n', ' ')).strip()
