@@ -16,7 +16,7 @@ Tested in a real Production Environment using:
 - Amazon Aurora MySQL (5.6 / 5.7)
 - Amazon Aurora Serverless
 
-[Checkout the demo](https://meteor.poliuscorp.com)
+[Checkout the demo](https://meteor.alzina.io)
 
 # 1. INSTALLATION
 
